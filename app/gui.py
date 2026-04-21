@@ -44,13 +44,13 @@ def make_gui():
     root = ThemedTk()
     root.title(config.APP_NAME)
     if use_tb:
-        root.geometry("1100x760")
+        root.geometry("1100x860")
         try:
             root.style = tb.Style(theme="darkly")
         except Exception:
             pass
     else:
-        root.geometry("1100x760")
+        root.geometry("1100x860")
 
     CFG = config.CFG
 

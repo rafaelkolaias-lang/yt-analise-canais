@@ -40,7 +40,6 @@ npm-debug.log*
 # Agentes internos e documentação de execução
 agents/
 \!executar.md
-\!projeto.md
 CLAUDE.md
 AGENTS.md
 RULES.md

@@ -1,0 +1,72 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+*.spec
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+painel/logs/*.log
+
+# Rate limit (JSON gerados em runtime por usuário/IP)
+painel/logs/ratelimit/
+
+# Credenciais e dados sensíveis
+
+# Tokens e tentativas de login (gerados em runtime)
+painel/commands/_comum/.tokens.json
+painel/commands/_comum/.tentativas.json
+
+# Ambiente virtual
+venv/
+.env
+node_modules/
+npm-debug.log*
+
+# Agentes internos e documentação de execução
+agents/
+\!executar.md
+\!projeto.md
+CLAUDE.md
+AGENTS.md
+RULES.md
+temporary_rules.md
+
+# Schema SQL (contém estrutura sensível do banco)
+dados.sql
+
+# Manual de credenciais (contém chave fixa de descriptografia dos apps)
+\!manual-credenciais.md
+
+# Arquivo de ambiente com APP_SECRETS_MASTER_KEY
+.env
+painel/.env
+
+# Contexto interno do Claude Code (pode conter histórico/decisões)
+.claude/
+
+# Memória persistente / projetos do Claude
+.anthropic/
+
+# Versões antigas exportadas (backup local)
+versoes-exportadas/
+
+# Dados do usuário (config com API keys, runs, monitorados, snapshots, planilhas)
+dados/
+
+# Executáveis gerados pelo build.bat
+*.exe

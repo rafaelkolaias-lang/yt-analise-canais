@@ -4,9 +4,8 @@ Sistema web para descoberta, monitoramento e analytics de canais do YouTube —
 com foco em identificar nichos dark em aceleração e oportunidades de canais
 novos.
 
-Sucessor em arquitetura web do app desktop Tkinter anterior (ainda preservado
-em [app/](app/) como referência funcional — não deve ser tocado sem
-autorização).
+Sucessor em arquitetura web do app desktop Tkinter anterior (agora removido —
+toda a funcionalidade relevante foi portada para este stack web).
 
 ---
 
@@ -37,7 +36,6 @@ yt-analise-canais-web/
 │   ├── .dockerignore
 │   ├── .env.example
 │   └── .env.local         # ← NÃO commitado
-├── app/                   # Desktop legado (Tkinter) — referência histórica
 ├── docs/
 ├── start-dev.bat          # atalho: abre api + web em 2 terminais
 ├── !projeto.md            # mapa do projeto (para IA e humano)

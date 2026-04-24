@@ -1,6 +1,6 @@
 # !projeto.md — youtube-analyzer
 
-> Sistema web para descoberta, monitoramento e analytics de canais do YouTube, com foco em identificar **nichos dark em aceleração** e oportunidades de réplica. Sucessor em arquitetura web do app desktop Tkinter antigo (pasta [app/](app/) preservada apenas como referência funcional — não tocar sem autorização).
+> Sistema web para descoberta, monitoramento e analytics de canais do YouTube, com foco em identificar **nichos dark em aceleração** e oportunidades de réplica. Sucessor em arquitetura web do app desktop Tkinter antigo (agora removido — toda a funcionalidade relevante foi portada para o stack web).
 
 > **Status (2026-04-24):**
 > - **Fase 0** (fundação web) — ✅
@@ -120,11 +120,9 @@ yt-analise-canais-web/
 │   ├── .env.local                    # ← gitignorado
 │   └── node_modules/                 # ← gitignorado
 │
-├── app/                              # LEGADO — desktop Tkinter. Não tocar sem autorização. Referência para
-│                                     # regras de scoring/discovery/monitoring a portar nas Fases 6+.
 ├── docs/
-├── README.md                         # dev local + (pendente Fase 8) deploy EasyPanel
-├── !executar.md                      # plano de fases (Fases 6-8 pendentes)
+├── README.md                         # dev local + deploy EasyPanel
+├── !executar.md                      # plano de fases (todas concluídas)
 ├── !projeto.md                       # este arquivo
 ├── start-dev.bat                     # 1-clique: abre 2 terminais com API e Web em dev
 ├── CLAUDE.md / AGENTS.md             # regras de IA

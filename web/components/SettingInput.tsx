@@ -1,0 +1,47 @@
+"use client";
+
+import { useState } from "react";
+
+type Props = {
+  initialValue: string | null;
+  valueType: string;
+  disabled?: boolean;
+  onSave: (newValue: string) => Promise<void>;
+};
+
+export function SettingInput({ initialValue, valueType, disabled, onSave }: Props) {
+  const [value, setValue] = useState(initialValue ?? "");
+  const [busy, setBusy] = useState(false);
+
+  const dirty = value !== (initialValue ?? "");
+  const inputType =
+    valueType === "int" || valueType === "float" ? "number" : "text";
+
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+      <input
+        type={inputType}
+        className="input"
+        value={value}
+        disabled={disabled || busy}
+        onChange={(e) => setValue(e.target.value)}
+        style={{ flex: "1 1 220px", minWidth: 160 }}
+      />
+      <button
+        type="button"
+        className="btn-primary"
+        disabled={!dirty || busy}
+        onClick={async () => {
+          setBusy(true);
+          try {
+            await onSave(value);
+          } finally {
+            setBusy(false);
+          }
+        }}
+      >
+        {busy ? "..." : "Salvar"}
+      </button>
+    </div>
+  );
+}

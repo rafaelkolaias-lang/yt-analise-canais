@@ -69,3 +69,47 @@ dados/
 
 # Executáveis gerados pelo build.bat
 *.exe
+
+# =========================================================
+# Novo stack web (youtube-analyzer) — api/ (FastAPI) e web/ (Next.js)
+# =========================================================
+
+# Envs (todos os .env exceto .env.example)
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Chaves e credenciais
+*.pem
+*.key
+*.pfx
+secrets/
+credentials/
+
+# Virtualenvs Python
+.venv/
+api/venv/
+api/.venv/
+
+# Caches/ferramentas Python
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Next.js
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# Dumps / backups de banco local
+*.sqlite
+*.sqlite3
+*.db
+dumps/
+backups/

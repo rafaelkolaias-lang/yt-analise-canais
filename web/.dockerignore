@@ -1,0 +1,30 @@
+node_modules
+.next
+out
+.turbo
+
+# Env
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# TS
+*.tsbuildinfo
+next-env.d.ts

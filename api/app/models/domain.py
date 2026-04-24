@@ -1,0 +1,334 @@
+"""
+Modelagem de domínio — youtube-analyzer
+
+Entidades cobertas:
+  - channels / channel_snapshots          (canais monitorados e histórico)
+  - tracked_videos / video_snapshots      (vídeos acompanhados e histórico)
+  - sync_runs                             (execuções de sincronização)
+  - discovery_runs / discovery_results_*  (buscas por termos e resultados)
+  - tags / channel_tags                   (nichos)
+  - app_settings                          (configurações globais)
+
+Convenções:
+  - Timestamps em UTC, nomeados `*_at`.
+  - IDs internos em BIGINT (`id`), IDs do YouTube em VARCHAR (`youtube_*_id`).
+  - Campos numéricos de contagem em BIGINT (inscritos, views) — podem passar de 2B.
+  - Métricas calculadas (VPD, delta) em FLOAT — precisão suficiente para analytics.
+  - Unique constraints garantem idempotência de sync (mesmo canal não duplica).
+  - InnoDB default com utf8mb4 para suportar emojis em títulos.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.core.database import Base
+
+
+# =============================================================================
+# Canais
+# =============================================================================
+class Channel(Base):
+    __tablename__ = "channels"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    youtube_channel_id: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    url: Mapped[Optional[str]] = mapped_column(String(512))
+    custom_url: Mapped[Optional[str]] = mapped_column(String(255))
+
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+    source: Mapped[Optional[str]] = mapped_column(String(64))
+
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    snapshots: Mapped[list["ChannelSnapshot"]] = relationship(
+        back_populates="channel", cascade="all, delete-orphan"
+    )
+    tracked_videos: Mapped[list["TrackedVideo"]] = relationship(
+        back_populates="channel", cascade="all, delete-orphan"
+    )
+    tags: Mapped[list["ChannelTag"]] = relationship(
+        back_populates="channel", cascade="all, delete-orphan"
+    )
+
+
+class ChannelSnapshot(Base):
+    __tablename__ = "channel_snapshots"
+    __table_args__ = (
+        Index("ix_channel_snapshots_channel_captured", "channel_id", "captured_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
+    )
+
+    subscribers: Mapped[Optional[int]] = mapped_column(BigInteger)
+    views_total: Mapped[Optional[int]] = mapped_column(BigInteger)
+    video_count: Mapped[Optional[int]] = mapped_column(Integer)
+
+    uploads_per_week: Mapped[Optional[float]] = mapped_column(Float)
+    avg_vpd_recent: Mapped[Optional[float]] = mapped_column(Float)
+    vpd_trend: Mapped[Optional[float]] = mapped_column(Float)
+
+    delta_subscribers: Mapped[Optional[int]] = mapped_column(BigInteger)
+    delta_views_total: Mapped[Optional[int]] = mapped_column(BigInteger)
+    delta_avg_vpd: Mapped[Optional[float]] = mapped_column(Float)
+
+    signal: Mapped[Optional[str]] = mapped_column(String(32))
+    signal_reason: Mapped[Optional[str]] = mapped_column(Text)
+
+    captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    channel: Mapped["Channel"] = relationship(back_populates="snapshots")
+
+
+# =============================================================================
+# Vídeos monitorados
+# =============================================================================
+class TrackedVideo(Base):
+    __tablename__ = "tracked_videos"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "youtube_video_id", name="uq_tracked_video"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+
+    youtube_video_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    url: Mapped[Optional[str]] = mapped_column(String(512))
+
+    tracking_source: Mapped[Optional[str]] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+
+    first_tracked_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    first_tracked_vpd: Mapped[Optional[float]] = mapped_column(Float)
+
+    last_seen_vpd: Mapped[Optional[float]] = mapped_column(Float)
+    last_seen_views: Mapped[Optional[int]] = mapped_column(BigInteger)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    channel: Mapped["Channel"] = relationship(back_populates="tracked_videos")
+    snapshots: Mapped[list["VideoSnapshot"]] = relationship(
+        back_populates="tracked_video", cascade="all, delete-orphan"
+    )
+
+
+class VideoSnapshot(Base):
+    __tablename__ = "video_snapshots"
+    __table_args__ = (
+        Index("ix_video_snapshots_video_captured", "tracked_video_id", "captured_at"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tracked_video_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("tracked_videos.id", ondelete="CASCADE"), nullable=False
+    )
+
+    views: Mapped[Optional[int]] = mapped_column(BigInteger)
+    likes: Mapped[Optional[int]] = mapped_column(BigInteger)
+    comments: Mapped[Optional[int]] = mapped_column(BigInteger)
+
+    vpd: Mapped[Optional[float]] = mapped_column(Float)
+
+    delta_views: Mapped[Optional[int]] = mapped_column(BigInteger)
+    delta_likes: Mapped[Optional[int]] = mapped_column(BigInteger)
+    delta_comments: Mapped[Optional[int]] = mapped_column(BigInteger)
+
+    recent_velocity: Mapped[Optional[float]] = mapped_column(Float)
+
+    captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    tracked_video: Mapped["TrackedVideo"] = relationship(back_populates="snapshots")
+
+
+# =============================================================================
+# Sync runs (execuções de sincronização — automática ou manual)
+# =============================================================================
+class SyncRun(Base):
+    __tablename__ = "sync_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    type: Mapped[str] = mapped_column(String(32), nullable=False)  # manual | scheduled
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    channels_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    videos_processed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+
+# =============================================================================
+# Descoberta (buscas por termos)
+# =============================================================================
+class DiscoveryRun(Base):
+    __tablename__ = "discovery_runs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    terms: Mapped[str] = mapped_column(Text, nullable=False)
+    filters_json: Mapped[Optional[str]] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+
+    started_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    finished_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    channels_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    videos_found: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+    notes: Mapped[Optional[str]] = mapped_column(Text)
+
+    channel_results: Mapped[list["DiscoveryResultChannel"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+    video_results: Mapped[list["DiscoveryResultVideo"]] = relationship(
+        back_populates="run", cascade="all, delete-orphan"
+    )
+
+
+class DiscoveryResultChannel(Base):
+    __tablename__ = "discovery_results_channels"
+    __table_args__ = (
+        Index("ix_discovery_ch_run_ytid", "run_id", "youtube_channel_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("discovery_runs.id", ondelete="CASCADE"), nullable=False
+    )
+
+    youtube_channel_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    url: Mapped[Optional[str]] = mapped_column(String(512))
+
+    subscribers: Mapped[Optional[int]] = mapped_column(BigInteger)
+    views_total: Mapped[Optional[int]] = mapped_column(BigInteger)
+    video_count: Mapped[Optional[int]] = mapped_column(Integer)
+    avg_vpd_recent: Mapped[Optional[float]] = mapped_column(Float)
+
+    score: Mapped[Optional[float]] = mapped_column(Float)
+    matched_term: Mapped[Optional[str]] = mapped_column(String(255))
+
+    captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    run: Mapped["DiscoveryRun"] = relationship(back_populates="channel_results")
+
+
+class DiscoveryResultVideo(Base):
+    __tablename__ = "discovery_results_videos"
+    __table_args__ = (
+        Index("ix_discovery_vid_run_ytid", "run_id", "youtube_video_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    run_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("discovery_runs.id", ondelete="CASCADE"), nullable=False
+    )
+
+    youtube_video_id: Mapped[str] = mapped_column(String(32), nullable=False)
+    youtube_channel_id: Mapped[Optional[str]] = mapped_column(String(32))
+    title: Mapped[str] = mapped_column(String(512), nullable=False)
+    url: Mapped[Optional[str]] = mapped_column(String(512))
+
+    views: Mapped[Optional[int]] = mapped_column(BigInteger)
+    likes: Mapped[Optional[int]] = mapped_column(BigInteger)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    vpd: Mapped[Optional[float]] = mapped_column(Float)
+    score: Mapped[Optional[float]] = mapped_column(Float)
+    matched_term: Mapped[Optional[str]] = mapped_column(String(255))
+
+    captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    run: Mapped["DiscoveryRun"] = relationship(back_populates="video_results")
+
+
+# =============================================================================
+# Tags / Nichos
+# =============================================================================
+class Tag(Base):
+    __tablename__ = "tags"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    channels: Mapped[list["ChannelTag"]] = relationship(
+        back_populates="tag", cascade="all, delete-orphan"
+    )
+
+
+class ChannelTag(Base):
+    __tablename__ = "channel_tags"
+    __table_args__ = (
+        UniqueConstraint("channel_id", "tag_id", name="uq_channel_tag"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    channel_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("channels.id", ondelete="CASCADE"), nullable=False
+    )
+    tag_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("tags.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    channel: Mapped["Channel"] = relationship(back_populates="tags")
+    tag: Mapped["Tag"] = relationship(back_populates="channels")
+
+
+# =============================================================================
+# App settings (configurações globais + secrets cifrados)
+# =============================================================================
+class AppSetting(Base):
+    """
+    Par chave/valor tipado para configurações globais.
+
+    - `value_type`: int | float | bool | str | json | secret
+    - `is_secret`: True quando `value` está cifrado com Fernet (ver crypto.py).
+      O código de leitura deve descifrar antes de usar. API keys do YouTube
+      são armazenadas com is_secret=True.
+    """
+    __tablename__ = "app_settings"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True, index=True)
+    value: Mapped[Optional[str]] = mapped_column(Text)
+    value_type: Mapped[str] = mapped_column(String(16), nullable=False, default="str")
+    is_secret: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    description: Mapped[Optional[str]] = mapped_column(String(255))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )

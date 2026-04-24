@@ -23,6 +23,7 @@ from typing import Optional
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
+from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.services import settings_reader, sync_service
 
@@ -34,9 +35,22 @@ _scheduler: Optional[BackgroundScheduler] = None
 
 
 def _current_interval_hours() -> int:
+    """
+    Lê `sync_interval_hours` do banco. Se a tabela `app_settings` ainda não
+    existe (primeiro boot em produção, antes de `alembic upgrade head`), cai
+    no fallback do env var SYNC_INTERVAL_HOURS para não crashar o startup.
+    """
+    fallback = get_settings().sync_interval_hours
     db = SessionLocal()
     try:
-        return settings_reader.get_int(db, "sync_interval_hours", 12)
+        return settings_reader.get_int(db, "sync_interval_hours", fallback)
+    except Exception as exc:
+        log.warning(
+            "[scheduler] não foi possível ler sync_interval_hours do banco "
+            "(%s). Usando fallback %sh. Rode `alembic upgrade head` + seed.",
+            exc, fallback,
+        )
+        return fallback
     finally:
         db.close()
 

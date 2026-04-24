@@ -19,8 +19,14 @@ from app.models import domain  # noqa: F401
 
 config = context.config
 
-# Injeta DATABASE_URL em tempo de execução
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Injeta DATABASE_URL em tempo de execução.
+# ConfigParser (usado internamente por set_main_option) interpreta `%` como
+# sintaxe de interpolação. Senhas URL-encoded com `%XX` (ex.: `%24` para `$`)
+# quebram. Escapamos dobrando pra `%%`.
+config.set_main_option(
+    "sqlalchemy.url",
+    get_settings().database_url.replace("%", "%%"),
+)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

@@ -35,6 +35,7 @@ def _channel_with_stats(db: Session, c: Channel) -> ChannelWithStats:
         title=c.title,
         url=c.url,
         custom_url=c.custom_url,
+        thumbnail_url=c.thumbnail_url,
         status=c.status,
         is_active=c.is_active,
         source=c.source,

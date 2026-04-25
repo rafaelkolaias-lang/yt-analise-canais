@@ -106,8 +106,14 @@ yt-analise-canais-web/
 │   ├── components/
 │   │   ├── Sidebar.tsx                # navegação fixa (6 itens)
 │   │   ├── SettingInput.tsx           # input plain com botão Salvar (dirty-aware)
-│   │   ├── SecretInput.tsx            # input password com máscara + Alterar/Remover
+│   │   ├── SecretInput.tsx            # input password com máscara + Alterar/Remover (suporta multiline)
 │   │   ├── ChannelChart.tsx           # Recharts wrapper (LineChart/BarChart + tooltip pt-BR)
+│   │   ├── ChannelAvatar.tsx          # avatar circular com fallback (inicial do título)
+│   │   ├── VideoThumbnail.tsx         # thumb 16:9 com fallback "sem thumb"
+│   │   ├── AddByLinkInput.tsx         # input pra colar link/ID e adicionar canal/vídeo
+│   │   ├── ChannelsFilterBar.tsx      # filtros+ordenação da aba Canais (client-side)
+│   │   ├── VideosFilterBar.tsx        # filtros+ordenação da aba Vídeos (dropdown só na grade)
+│   │   ├── SortableHeader.tsx         # <th> clicável com cicle desc/asc/default
 │   │   ├── Toaster.tsx                # Context + hook useToast (success/error/info)
 │   │   ├── GlobalSyncIndicator.tsx    # badge no topo que polla /api/sync/status a cada 5s
 │   │   ├── Skeleton.tsx               # bloco animado (shimmer) para estados de loading
@@ -123,12 +129,16 @@ yt-analise-canais-web/
 │   └── node_modules/                 # ← gitignorado
 │
 ├── docs/
-├── README.md                         # dev local + deploy EasyPanel
-├── !executar.md                      # plano de fases (todas concluídas)
+├── scripts/                          # ferramentas one-shot (rodam manualmente)
+│   ├── import_legacy.py              # importa canais + api keys do projeto desktop antigo
+│   └── backfill_thumbnails.py        # popula thumbs em lote (1 unit por 50 canais/vídeos)
+├── README.md                         # dev local + deploy EasyPanel + manutenção
+├── !executar.md                      # tarefas pendentes (livre quando concluídas — git log é a verdade)
 ├── !projeto.md                       # este arquivo
 ├── start-dev.bat                     # 1-clique: abre 2 terminais com API e Web em dev
 ├── CLAUDE.md / AGENTS.md             # regras de IA
-├── temporary_rules.md                # regras temporárias do projeto
+├── temporary_rules.md                # regras temporárias do projeto (gitignorado)
+├── SECRETS.local.md                  # senhas e chaves locais (gitignorado)
 └── .gitignore                        # cobre **/.env, .venv, node_modules, .next, dumps
 ```
 
@@ -167,6 +177,10 @@ yt-analise-canais-web/
 | Tela de Analytics | [web/app/analytics/AnalyticsView.tsx](web/app/analytics/AnalyticsView.tsx), [web/components/ChannelChart.tsx](web/components/ChannelChart.tsx) |
 | Input seguro (API keys) | [web/components/SecretInput.tsx](web/components/SecretInput.tsx) |
 | Feedback global (toast, sync, loading, erro) | [web/components/Toaster.tsx](web/components/Toaster.tsx), [web/components/GlobalSyncIndicator.tsx](web/components/GlobalSyncIndicator.tsx), [web/components/Skeleton.tsx](web/components/Skeleton.tsx), [web/components/ErrorCard.tsx](web/components/ErrorCard.tsx) |
+| Avatar / thumbnail (UI) | [web/components/ChannelAvatar.tsx](web/components/ChannelAvatar.tsx), [web/components/VideoThumbnail.tsx](web/components/VideoThumbnail.tsx) |
+| Adicionar canal/vídeo via link | [web/components/AddByLinkInput.tsx](web/components/AddByLinkInput.tsx) (frontend), [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py) (`resolve_youtube_input`), [api/app/routers/monitoring.py](api/app/routers/monitoring.py) (`POST /api/monitoring/resolve`) |
+| Filtros e ordenação (Monitoramento) | [web/components/ChannelsFilterBar.tsx](web/components/ChannelsFilterBar.tsx), [web/components/VideosFilterBar.tsx](web/components/VideosFilterBar.tsx), [web/components/SortableHeader.tsx](web/components/SortableHeader.tsx) |
+| Scripts one-shot | [scripts/import_legacy.py](scripts/import_legacy.py), [scripts/backfill_thumbnails.py](scripts/backfill_thumbnails.py) |
 
 ---
 
@@ -174,9 +188,9 @@ yt-analise-canais-web/
 
 | Tabela | Papel |
 |---|---|
-| `channels` | Canais conhecidos/monitorados (youtube_channel_id único, `status`=`active\|paused\|removed`, `is_active`, `source`) |
+| `channels` | Canais conhecidos/monitorados (youtube_channel_id único, `status`=`active\|paused\|removed`, `is_active`, `source`, `thumbnail_url`) |
 | `channel_snapshots` | Histórico de inscritos, views totais, `avg_vpd_recent`, deltas, `vpd_trend`, `uploads_per_week`, **`signal`** (`heating\|promising\|saturated\|stable`) + `signal_reason`. Índice `(channel_id, captured_at)` |
-| `tracked_videos` | Vídeos acompanhados por canal (unique `(channel_id, youtube_video_id)`), `tracking_source` (`discovery`\|`best_from_channel`), `first_tracked_vpd`, `last_seen_*` |
+| `tracked_videos` | Vídeos acompanhados por canal (unique `(channel_id, youtube_video_id)`), `tracking_source` (`discovery`\|`best_from_channel`), `first_tracked_vpd`, `last_seen_*`, `thumbnail_url` |
 | `video_snapshots` | Histórico de views/likes/comments/VPD/deltas por vídeo. Índice `(tracked_video_id, captured_at)` |
 | `sync_runs` | Execuções de sincronização (`type`=`manual\|scheduled`, `status`=`running\|success\|partial\|failed`, contadores, notes com erros individuais) |
 | `discovery_runs` | Buscas por termos (`filters_json`, contadores) |
@@ -229,6 +243,7 @@ Carregadas via `python -m app.seed` (idempotente):
 | GET | `/api/monitoring/channels/{id}/best-videos` | Lista acumulativa de melhores vídeos detectados |
 | GET | `/api/monitoring/videos` | Lista vídeos monitorados com `last_seen_*` |
 | POST | `/api/monitoring/videos` | Adiciona vídeo por `youtube_video_id` (cria canal dono se preciso) |
+| POST | `/api/monitoring/resolve` | Recebe link/ID, devolve `{kind: channel\|video, youtube_id}`. 0 units pra ID/URL com ID; 1 unit pra handle |
 | PATCH | `/api/monitoring/videos/{id}` | Altera status |
 | DELETE | `/api/monitoring/videos/{id}` | Remove vídeo + cascata (snapshots) |
 | POST | `/api/monitoring/videos/{id}/snapshot` | Snapshot imediato do vídeo com deltas |
@@ -297,6 +312,26 @@ Carregadas via `python -m app.seed` (idempotente):
    - **Build args do Next.js (NEXT_PUBLIC_*)**: o EasyPanel **passa env vars do Ambiente como build-arg automaticamente** — não precisa de campo "Build Args" separado. Confirmado vendo o comando `docker buildx build --build-arg 'NEXT_PUBLIC_API_URL=...'` nos logs do build.
 
 24. **Fluxo recomendado pra primeira vez no EasyPanel** (resumo do que demos certo): (1) criar serviço `App` com Source apontando pro `/api` ou `/web`, (2) Construção em `Dockerfile` (não Nixpacks), (3) Ambiente com env vars, (4) Implantar, (5) **só depois do container estar verde**, adicionar Domínio na aba dedicada com **destino HTTP**, externo HTTPS, porta correta. Pra `-api`, depois rodar `alembic upgrade head` + `python -m app.seed` no shell do container (botão `>_` → Bash). Pra `-web`, basta o domínio ficar de pé.
+
+25. **Thumbnails** (canal e vídeo): `monitoring_service._pick_thumbnail()` extrai a maior URL disponível (`high → medium → default`) do `snippet.thumbnails` que já vem em todas as chamadas `channels.list` e `videos.list`. Custo extra: **zero** — é dado que já trafega. Persistido em `channels.thumbnail_url` e `tracked_videos.thumbnail_url` (VARCHAR(512)). Atualizado em todos os pontos onde criamos ou refresh-amos esses registros (`_get_or_create_channel_from_youtube`, `snapshot_channel`, `add_video`, `_accumulate_best_video`, `snapshot_video`). Frontend usa `<ChannelAvatar>` (circular, fallback inicial do título) em Monitoramento + Analytics; `<VideoThumbnail>` (16:9, fallback "sem thumb") em Vídeos lista (200×113) + Vídeos grade (320×180) + Melhores Vídeos.
+
+26. **Layout lista/grade** (Monitoramento → Vídeos): toggle no canto superior direito da aba alterna entre tabela tradicional (`list`) e grade de cards (`grid`, ~280px por coluna). Persistido em `localStorage` chave `monitoramento.videoLayout`. No modo grade os campos visíveis são reduzidos pra caber no card: thumb grande, título (2 linhas truncadas), pill de status, views, VPD atual + inicial entre parênteses, botões Atualizar e Pausar/Retomar. **Sem** botão Remover na grade — quem quer apagar usa a lista.
+
+27. **API keys multilinha**: `SecretInput` ganhou prop `multiline?: boolean` (textarea 5 linhas, monospace). Em `ConfiguracoesForm`, ativada **só** pra `youtube.api_keys` — outros secrets continuam input de uma linha. Backend `youtube_client.build_from_db()` aceita `,` ou `\n` como separador (compat com config CSV antigo). Pra novos secrets multilinha, basta adicionar a key no condicional do `ConfiguracoesForm`.
+
+28. **Configurações com layout invertido**: descrição agora vem em destaque (texto normal, fonte 13px) e a chave técnica (`youtube.api_keys`, etc.) aparece embaixo em fonte monospace cinza, como referência. Lógica em [ConfiguracoesForm.tsx](web/app/configuracoes/ConfiguracoesForm.tsx).
+
+29. **Bug-padrão a evitar — schemas Pydantic construídos manualmente**: em [api/app/routers/monitoring.py](api/app/routers/monitoring.py), a função `_channel_with_stats` constrói `ChannelWithStats` campo a campo com keyword args (porque precisa misturar dados do `Channel` ORM + último `ChannelSnapshot`). Quando adicionamos `thumbnail_url`, esquecemos esse lugar e o GET `/api/monitoring/channels` retornou `null` mesmo com banco populado (POST `/api/monitoring/channels` que usa `from_attributes=True` direto funcionava). **Regra**: ao adicionar campo num schema, fazer `git grep "NomeDoSchema("` pra achar todos os construtores manuais.
+
+30. **Scripts one-shot em `scripts/`**:
+    - `import_legacy.py`: importa do projeto desktop antigo (`E:\Automacao-YT\yt-analise-canais\dados\`). Idempotente. `--base-url` aponta pro alvo, `--skip-keys` pula configuração das API keys (use em prod onde já configurou via UI), `--skip-listados` pula os 232 canais "vistos", `--dry-run` mostra plano sem escrever. Usa `urllib` puro (sem deps). Rodado uma vez em local + uma vez em prod (2026-04-25), gerou ~216 canais em prod (11 active + 205 paused; 7 falham por canais deletados no YouTube).
+    - `backfill_thumbnails.py`: popula `thumbnail_url` em lote (50 IDs por chamada `channels.list`/`videos.list`). Custo: 1 unit por lote vs 3 units por canal se fosse via snapshot. Idempotente — só toca em registros com `thumbnail_url IS NULL`. Útil quando se importa canais antes do code do `_pick_thumbnail` estar rodando, ou quando se adiciona o campo a um banco que já tem dados.
+
+31. **Adicionar canal/vídeo via link** (UX do usuário): aba Canais do Monitoramento tem [web/components/AddByLinkInput.tsx](web/components/AddByLinkInput.tsx) no topo — um input só que aceita link ou ID. Backend resolve em [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py) (`resolve_youtube_input`) com regex pra IDs puros e URLs (`watch?v=`, `youtu.be/`, `shorts/`, `embed/`, `/channel/UC…`, `/@handle`, `/c/`, `/user/`). Endpoint `POST /api/monitoring/resolve` retorna `{kind, youtube_id}`; o frontend encadeia `add_channel` ou `add_video`. Custos de quota: 0 units pra ID/URL com ID embutido; 1 unit pra handles (resolve via `channels.list?forHandle=`). Vídeos resolvem o canal dono automaticamente (já era assim no `add_video`).
+
+32. **Filtros + ordenação client-side** em Monitoramento → abas Canais e Vídeos. Componentes [web/components/ChannelsFilterBar.tsx](web/components/ChannelsFilterBar.tsx) e [web/components/VideosFilterBar.tsx](web/components/VideosFilterBar.tsx) exportam (a) o componente da barra, (b) o tipo dos filtros, (c) o default e (d) a função `apply...Filters(list, filters)` que filtra+ordena. `MonitoramentoView` mantém 2 states de filtros e usa `useMemo` pra derivar listas. **Não persiste** em localStorage (decisão deliberada: F5 reseta — evita "sumiço fantasma" de canal por filtro esquecido). Empty state diferenciado: lista vazia ("nenhum canal monitorado") vs filtro vazio ("nenhum corresponde aos filtros aplicados") com botão Limpar visível só quando há filtro ativo. Decisão de escala: client-side suporta tranquilamente até alguns milhares de itens; se um dia escalar pra 10k+, migrar pra query params na API.
+
+33. **Ordenação por header clicável** ([web/components/SortableHeader.tsx](web/components/SortableHeader.tsx)): nas tabelas em modo lista, clicar num `<th>` ordenável cicla 3 estados (null → desc → asc → default). Setinha (↕ inativo / ↓ desc / ↑ asc) em `var(--accent)` quando ativa. Algumas colunas têm só `descKey` (Δ Inscritos, VPD inicial, Último sync) — nesses casos o ciclo vira 2 estados (null → desc → default). No **modo grade da aba Vídeos** não há header pra clicar, então `VideosFilterBar` aceita `showSortDropdown` como prop e renderiza um `<select>` inline só nesse caso (`MonitoramentoView` passa `videoLayout === "grid"`). A seleção de coluna no header e o dropdown da grade compartilham o mesmo estado `videoFilters.sort` — alternar layout preserva a ordenação.
 
 ---
 

@@ -481,6 +481,78 @@ textarea.input {
 }
 
 /* ------------------------------------------------------------------ */
+/* Filter bar (Monitoramento → Canais e Vídeos)                        */
+/* ------------------------------------------------------------------ */
+.filter-bar {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.filter-bar .input,
+.filter-bar select {
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.filter-bar select {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+}
+
+.filter-bar select:focus {
+  border-color: var(--accent);
+}
+
+.filter-bar-search {
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.filter-bar-spacer {
+  flex: 1;
+}
+
+.filter-bar-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.filter-bar-advanced {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
+  animation: fade-in 0.15s ease-out;
+}
+
+.filter-bar-advanced label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.filter-bar-advanced input.input {
+  width: 110px;
+}
+
+/* ------------------------------------------------------------------ */
 /* Video grid (Monitoramento → aba Vídeos, modo grade)                 */
 /* ------------------------------------------------------------------ */
 .video-grid {

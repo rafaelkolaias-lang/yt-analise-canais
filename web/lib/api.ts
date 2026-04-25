@@ -223,6 +223,12 @@ export type SyncStatus = {
   last_run: SyncRun | null;
 };
 
+// Resolve (input do usuário → canal ou vídeo)
+export type ResolveResult = {
+  kind: "channel" | "video";
+  youtube_id: string;
+};
+
 // Runs de discovery (resumo, para a página Runs)
 export type DiscoveryRunSummary = {
   id: number;

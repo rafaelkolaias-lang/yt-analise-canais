@@ -10,6 +10,8 @@ from app.schemas.monitoring import (
     ChannelRead,
     ChannelSnapshotRead,
     ChannelWithStats,
+    ResolveRequest,
+    ResolveResponse,
     StatusUpdateRequest,
     TrackedVideoRead,
     VideoSnapshotRead,
@@ -160,3 +162,24 @@ def snapshot_video(video_id: int, db: Session = Depends(get_db)) -> VideoSnapsho
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Resolve (link/ID → tipo + youtube_id)
+# ---------------------------------------------------------------------------
+@router.post("/resolve", response_model=ResolveResponse)
+def resolve_input(
+    req: ResolveRequest, db: Session = Depends(get_db)
+) -> ResolveResponse:
+    """
+    Recebe um link YouTube ou ID puro e devolve o tipo (channel|video) +
+    youtube_id resolvido. Custa 0 units pra IDs e URLs com ID embutido,
+    1 unit pra handles (@nome).
+    """
+    try:
+        kind, yt_id = monitoring_service.resolve_youtube_input(db, req.raw)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except youtube_client.NoAPIKeyConfigured as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    return ResolveResponse(kind=kind, youtube_id=yt_id)

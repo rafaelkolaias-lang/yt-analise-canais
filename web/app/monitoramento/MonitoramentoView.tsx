@@ -2,9 +2,25 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { AddByLinkInput } from "@/components/AddByLinkInput";
 import { ChannelAvatar } from "@/components/ChannelAvatar";
+import {
+  ChannelsFilterBar,
+  DEFAULT_CHANNEL_FILTERS,
+  applyChannelFilters,
+  type ChannelFilters,
+  type ChannelSortKey,
+} from "@/components/ChannelsFilterBar";
+import { SortableHeader } from "@/components/SortableHeader";
 import { useToast } from "@/components/Toaster";
 import { VideoThumbnail } from "@/components/VideoThumbnail";
+import {
+  DEFAULT_VIDEO_FILTERS,
+  VideosFilterBar,
+  applyVideoFilters,
+  type VideoFilters,
+  type VideoSortKey,
+} from "@/components/VideosFilterBar";
 import {
   apiDelete,
   apiGet,
@@ -71,7 +87,29 @@ export function MonitoramentoView({
   const [bestByChannel, setBestByChannel] = useState<Record<number, MonitoredVideo[]>>({});
   const [rowState, setRowState] = useState<RowState>({});
   const [videoLayout, setVideoLayout] = useState<VideoLayout>("list");
+  const [channelFilters, setChannelFilters] = useState<ChannelFilters>(
+    DEFAULT_CHANNEL_FILTERS
+  );
+  const [videoFilters, setVideoFilters] = useState<VideoFilters>(
+    DEFAULT_VIDEO_FILTERS
+  );
   const toast = useToast();
+
+  const filteredChannels = useMemo(
+    () => applyChannelFilters(channels, channelFilters),
+    [channels, channelFilters]
+  );
+  const filteredVideos = useMemo(
+    () => applyVideoFilters(videos, videoFilters),
+    [videos, videoFilters]
+  );
+  const availableChannelSources = useMemo(() => {
+    const set = new Set<string>();
+    for (const c of channels) {
+      if (c.source) set.add(c.source);
+    }
+    return Array.from(set).sort();
+  }, [channels]);
 
   // Carrega preferência de layout uma vez no mount (evita flicker no SSR).
   useEffect(() => {
@@ -275,21 +313,82 @@ export function MonitoramentoView({
       </div>
 
       {tab === "channels" && (
-        <div className="table-wrap">
+        <>
+          <div style={{ marginBottom: -4 }}>
+            <AddByLinkInput
+              onChannelAdded={() => {
+                refreshChannels();
+              }}
+              onVideoAdded={() => {
+                // Backend criou o canal dono — atualizar canais e vídeos.
+                refreshChannels();
+                refreshVideos();
+              }}
+            />
+          </div>
+          <ChannelsFilterBar
+            filters={channelFilters}
+            onChange={setChannelFilters}
+            totalCount={channels.length}
+            filteredCount={filteredChannels.length}
+            availableSources={availableChannelSources}
+          />
+          <div className="table-wrap">
           <table className="table">
             <thead>
               <tr>
-                <th>Canal</th>
+                <SortableHeader<ChannelSortKey>
+                  label="Canal"
+                  columnKey="title"
+                  currentSort={channelFilters.sort}
+                  defaultSort={DEFAULT_CHANNEL_FILTERS.sort}
+                  descKey="title_desc"
+                  ascKey="title_asc"
+                  onChange={(s) => setChannelFilters({ ...channelFilters, sort: s })}
+                />
                 <th>Status</th>
-                <th style={{ textAlign: "right" }}>Inscritos</th>
-                <th style={{ textAlign: "right" }}>Δ Inscritos</th>
-                <th style={{ textAlign: "right" }}>VPD recente</th>
-                <th>Último sync</th>
+                <SortableHeader<ChannelSortKey>
+                  label="Inscritos"
+                  columnKey="subs"
+                  currentSort={channelFilters.sort}
+                  defaultSort={DEFAULT_CHANNEL_FILTERS.sort}
+                  descKey="subs_desc"
+                  ascKey="subs_asc"
+                  onChange={(s) => setChannelFilters({ ...channelFilters, sort: s })}
+                  style={{ textAlign: "right" }}
+                />
+                <SortableHeader<ChannelSortKey>
+                  label="Δ Inscritos"
+                  columnKey="delta_subs"
+                  currentSort={channelFilters.sort}
+                  defaultSort={DEFAULT_CHANNEL_FILTERS.sort}
+                  descKey="delta_subs_desc"
+                  onChange={(s) => setChannelFilters({ ...channelFilters, sort: s })}
+                  style={{ textAlign: "right" }}
+                />
+                <SortableHeader<ChannelSortKey>
+                  label="VPD recente"
+                  columnKey="vpd"
+                  currentSort={channelFilters.sort}
+                  defaultSort={DEFAULT_CHANNEL_FILTERS.sort}
+                  descKey="vpd_desc"
+                  ascKey="vpd_asc"
+                  onChange={(s) => setChannelFilters({ ...channelFilters, sort: s })}
+                  style={{ textAlign: "right" }}
+                />
+                <SortableHeader<ChannelSortKey>
+                  label="Último sync"
+                  columnKey="last_sync"
+                  currentSort={channelFilters.sort}
+                  defaultSort={DEFAULT_CHANNEL_FILTERS.sort}
+                  descKey="last_sync_desc"
+                  onChange={(s) => setChannelFilters({ ...channelFilters, sort: s })}
+                />
                 <th style={{ width: 320 }}></th>
               </tr>
             </thead>
             <tbody>
-              {channels.map((c) => {
+              {filteredChannels.map((c) => {
                 const snapState = rowState[`ch-snap:${c.id}`] ?? "idle";
                 const toggleState = rowState[`ch-toggle:${c.id}`] ?? "idle";
                 const delState = rowState[`ch-del:${c.id}`] ?? "idle";
@@ -345,17 +444,24 @@ export function MonitoramentoView({
                   </tr>
                 );
               })}
-              {channels.length === 0 && (
+              {filteredChannels.length === 0 && (
                 <tr>
                   <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 16 }}>
-                    nenhum canal monitorado. Use a página{" "}
-                    <a href="/descoberta">Descoberta</a> para adicionar.
+                    {channels.length === 0 ? (
+                      <>
+                        nenhum canal monitorado. Cole um link/ID acima ou use a página{" "}
+                        <a href="/descoberta">Descoberta</a>.
+                      </>
+                    ) : (
+                      <>nenhum canal corresponde aos filtros aplicados.</>
+                    )}
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {tab === "videos" && (
@@ -392,10 +498,20 @@ export function MonitoramentoView({
             </button>
           </div>
 
-          {videos.length === 0 ? (
+          <VideosFilterBar
+            filters={videoFilters}
+            onChange={setVideoFilters}
+            totalCount={videos.length}
+            filteredCount={filteredVideos.length}
+            showSortDropdown={videoLayout === "grid"}
+          />
+
+          {filteredVideos.length === 0 ? (
             <div className="card">
               <p className="muted" style={{ margin: 0 }}>
-                nenhum vídeo monitorado.
+                {videos.length === 0
+                  ? "nenhum vídeo monitorado."
+                  : "nenhum vídeo corresponde aos filtros aplicados."}
               </p>
             </div>
           ) : videoLayout === "list" ? (
@@ -403,18 +519,59 @@ export function MonitoramentoView({
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Vídeo</th>
+                    <SortableHeader<VideoSortKey>
+                      label="Vídeo"
+                      columnKey="title"
+                      currentSort={videoFilters.sort}
+                      defaultSort={DEFAULT_VIDEO_FILTERS.sort}
+                      descKey="title_desc"
+                      ascKey="title_asc"
+                      onChange={(s) => setVideoFilters({ ...videoFilters, sort: s })}
+                    />
                     <th>Status</th>
                     <th>Origem</th>
-                    <th style={{ textAlign: "right" }}>Views</th>
-                    <th style={{ textAlign: "right" }}>VPD atual</th>
-                    <th style={{ textAlign: "right" }}>VPD inicial</th>
-                    <th>Último sync</th>
+                    <SortableHeader<VideoSortKey>
+                      label="Views"
+                      columnKey="views"
+                      currentSort={videoFilters.sort}
+                      defaultSort={DEFAULT_VIDEO_FILTERS.sort}
+                      descKey="views_desc"
+                      ascKey="views_asc"
+                      onChange={(s) => setVideoFilters({ ...videoFilters, sort: s })}
+                      style={{ textAlign: "right" }}
+                    />
+                    <SortableHeader<VideoSortKey>
+                      label="VPD atual"
+                      columnKey="vpd"
+                      currentSort={videoFilters.sort}
+                      defaultSort={DEFAULT_VIDEO_FILTERS.sort}
+                      descKey="vpd_desc"
+                      ascKey="vpd_asc"
+                      onChange={(s) => setVideoFilters({ ...videoFilters, sort: s })}
+                      style={{ textAlign: "right" }}
+                    />
+                    <SortableHeader<VideoSortKey>
+                      label="VPD inicial"
+                      columnKey="first_vpd"
+                      currentSort={videoFilters.sort}
+                      defaultSort={DEFAULT_VIDEO_FILTERS.sort}
+                      descKey="first_vpd_desc"
+                      onChange={(s) => setVideoFilters({ ...videoFilters, sort: s })}
+                      style={{ textAlign: "right" }}
+                    />
+                    <SortableHeader<VideoSortKey>
+                      label="Último sync"
+                      columnKey="last_sync"
+                      currentSort={videoFilters.sort}
+                      defaultSort={DEFAULT_VIDEO_FILTERS.sort}
+                      descKey="last_sync_desc"
+                      onChange={(s) => setVideoFilters({ ...videoFilters, sort: s })}
+                    />
                     <th style={{ width: 320 }}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {videos.map((v) => {
+                  {filteredVideos.map((v) => {
                     const snapState = rowState[`vd-snap:${v.id}`] ?? "idle";
                     const toggleState = rowState[`vd-toggle:${v.id}`] ?? "idle";
                     const delState = rowState[`vd-del:${v.id}`] ?? "idle";
@@ -478,7 +635,7 @@ export function MonitoramentoView({
             </div>
           ) : (
             <div className="video-grid">
-              {videos.map((v) => {
+              {filteredVideos.map((v) => {
                 const snapState = rowState[`vd-snap:${v.id}`] ?? "idle";
                 const toggleState = rowState[`vd-toggle:${v.id}`] ?? "idle";
                 return (

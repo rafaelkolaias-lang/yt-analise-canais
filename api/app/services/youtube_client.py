@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
+from typing import Optional
 
 import httpx
 from sqlalchemy.orm import Session
@@ -193,6 +194,25 @@ class YouTubeClient:
             )
             items.extend(data.get("items", []))
         return items
+
+    def resolve_handle(self, handle: str) -> Optional[str]:
+        """
+        Resolve um handle (`@nome` ou `nome`) para o `UC...` channel ID.
+        Custo: 1 unit. Retorna None se não achar.
+        """
+        h = handle.lstrip("@").strip()
+        if not h:
+            return None
+        data = self._get(
+            "channels",
+            {"part": "id", "forHandle": f"@{h}"},
+        )
+        items = data.get("items") or []
+        if items:
+            cid = items[0].get("id")
+            if cid:
+                return str(cid)
+        return None
 
 
 def build_from_db(db: Session) -> YouTubeClient:

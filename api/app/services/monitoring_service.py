@@ -10,8 +10,9 @@ Fluxo típico:
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
@@ -508,4 +509,108 @@ def list_best_videos_for_channel(db: Session, channel_id: int) -> list[TrackedVi
         .filter_by(channel_id=channel_id, tracking_source="best_from_channel")
         .order_by(desc(TrackedVideo.first_tracked_at))
         .all()
+    )
+
+
+# =============================================================================
+# Resolução de input do usuário (link ou ID) → tipo + youtube_id
+# =============================================================================
+ResolveKind = Literal["channel", "video"]
+
+# UC + 22 chars (base64-url-safe), formato fixo do YouTube
+_CHANNEL_ID_RE = re.compile(r"^UC[A-Za-z0-9_-]{22}$")
+# Video ID: 11 chars (base64-url-safe sem padding)
+_VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def _extract_video_id(text: str) -> Optional[str]:
+    """
+    Extrai um youtube_video_id de uma URL ou retorna None.
+    Aceita:
+      - youtube.com/watch?v=ID[&...]
+      - youtu.be/ID
+      - youtube.com/shorts/ID
+      - youtube.com/embed/ID
+    """
+    patterns = [
+        r"(?:youtube\.com/watch\?v=)([A-Za-z0-9_-]{11})",
+        r"(?:youtu\.be/)([A-Za-z0-9_-]{11})",
+        r"(?:youtube\.com/shorts/)([A-Za-z0-9_-]{11})",
+        r"(?:youtube\.com/embed/)([A-Za-z0-9_-]{11})",
+    ]
+    for pat in patterns:
+        m = re.search(pat, text)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _extract_channel_id(text: str) -> Optional[str]:
+    """Extrai um UC... de uma URL `youtube.com/channel/UC...` ou retorna None."""
+    m = re.search(r"(?:youtube\.com/channel/)(UC[A-Za-z0-9_-]{22})", text)
+    return m.group(1) if m else None
+
+
+def _extract_handle(text: str) -> Optional[str]:
+    """
+    Extrai o handle (`@nome`) de uma URL `youtube.com/@nome` (sem `@` retornado).
+    Também aceita variantes `/c/nome` e `/user/nome` (raras hoje, deprecadas
+    mas válidas) — tentaremos resolver via handle.
+    """
+    m = re.search(r"youtube\.com/@([A-Za-z0-9._-]+)", text)
+    if m:
+        return m.group(1)
+    m = re.search(r"youtube\.com/(?:c|user)/([A-Za-z0-9._-]+)", text)
+    if m:
+        return m.group(1)
+    return None
+
+
+def resolve_youtube_input(
+    db: Session, raw: str
+) -> tuple[ResolveKind, str]:
+    """
+    Recebe input do usuário (link ou ID) e devolve (kind, youtube_id) pronto
+    para chamar add_channel/add_video. Levanta ValueError com mensagem
+    amigável se não der pra resolver.
+
+    Custo de quota:
+      - ID puro ou URL com ID: 0 units (parsing local).
+      - Handle (`@nome`, `/c/`, `/user/`): 1 unit (channels.list?forHandle).
+    """
+    text = (raw or "").strip()
+    if not text:
+        raise ValueError("Informe um link ou ID.")
+
+    # 1) ID puro (canal ou vídeo)
+    if _CHANNEL_ID_RE.match(text):
+        return ("channel", text)
+    if _VIDEO_ID_RE.match(text):
+        return ("video", text)
+
+    # 2) URL com vídeo embutido (watch, shorts, youtu.be, embed)
+    vid = _extract_video_id(text)
+    if vid:
+        return ("video", vid)
+
+    # 3) URL com /channel/UC...
+    cid = _extract_channel_id(text)
+    if cid:
+        return ("channel", cid)
+
+    # 4) URL com handle (@nome, /c/, /user/) — precisa resolver via API
+    handle = _extract_handle(text)
+    if handle:
+        client = youtube_client.build_from_db(db)
+        resolved = client.resolve_handle(handle)
+        if resolved:
+            return ("channel", resolved)
+        raise ValueError(
+            f"Handle '@{handle}' não encontrado no YouTube."
+        )
+
+    raise ValueError(
+        "Formato não reconhecido. Cole um ID (UC... ou de vídeo), "
+        "um link de vídeo (watch?v=, youtu.be, shorts) ou de canal "
+        "(/channel/UC..., /@handle)."
     )

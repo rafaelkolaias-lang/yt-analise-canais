@@ -270,6 +270,78 @@ runtime — não precisa restart.
    se mudar a URL da API.
 4. Redeployar `-web` (por causa do `NEXT_PUBLIC_*` em build time).
 
+### …aplicar uma migração nova (Alembic) em produção
+
+Após `git push` com migration nova:
+
+1. EasyPanel rebuilda automaticamente o container `-api` (ou clicar
+   "Implantar" se não houver auto-deploy).
+2. Esperar o container ficar verde.
+3. Abrir o shell do `-api` (botão `>_` → Bash).
+4. Rodar:
+   ```bash
+   alembic upgrade head
+   ```
+5. Validar: `curl https://API/api/monitoring/channels` deve voltar 200.
+
+> ⚠️ DDL em produção é destrutivo se mal feito (DROP COLUMN, ALTER incompatível
+> etc.). Migrações deste projeto até hoje só fizeram `ADD COLUMN nullable`,
+> que é seguro. Se um dia precisar mudar tipos ou apagar coluna, fazer
+> backup do banco antes.
+
+### …importar canais do projeto desktop antigo
+
+Use [scripts/import_legacy.py](scripts/import_legacy.py). Lê
+`monitorados.json`, `canais_listados.csv` e `config.json` da pasta
+`E:\Automacao-YT\yt-analise-canais\dados\`.
+
+```bash
+# Dry-run (mostra o plano, não escreve)
+api/.venv/Scripts/python.exe scripts/import_legacy.py --dry-run
+
+# Local (XAMPP)
+api/.venv/Scripts/python.exe scripts/import_legacy.py
+
+# Produção (EasyPanel) — atenção ao --skip-keys se já configurou
+# as YouTube API keys via UI em /configuracoes
+api/.venv/Scripts/python.exe scripts/import_legacy.py \
+    --base-url https://banco-youtube-analyzer-api.cpgdmb.easypanel.host \
+    --skip-keys
+```
+
+Idempotente. Os 11 canais do `monitorados.json` ficam como `active`; os 232
+do `canais_listados.csv` (descontadas duplicatas e canais já active) ficam
+como `paused`. Canais deletados/banidos no YouTube falham com HTTP 400 —
+esperado, são lixo histórico. Custo de quota: ~1 unit por canal criado.
+
+### …popular thumbnails que ficaram em branco (backfill em lote)
+
+Quando se adiciona o campo `thumbnail_url` a um banco que já tem registros,
+ou se importa canais antes do code do `_pick_thumbnail` estar rodando, eles
+ficam com `thumbnail_url=NULL`. Use [scripts/backfill_thumbnails.py](scripts/backfill_thumbnails.py)
+pra popular em lote.
+
+```bash
+# Dry-run (não chama YouTube nem grava)
+api/.venv/Scripts/python.exe scripts/backfill_thumbnails.py --dry-run
+
+# Pra valer (local OU prod — usa Settings da venv da api/)
+api/.venv/Scripts/python.exe scripts/backfill_thumbnails.py
+
+# Só canais ou só vídeos
+api/.venv/Scripts/python.exe scripts/backfill_thumbnails.py --skip-videos
+api/.venv/Scripts/python.exe scripts/backfill_thumbnails.py --skip-channels
+```
+
+Custo de quota: **1 unit por lote de 50 registros** (vs 3 units por canal
+se fosse via `snapshot_channel`). 218 canais → 5 lotes → 5 units total.
+Só toca em rows com `thumbnail_url IS NULL` (idempotente).
+
+> O script roda direto contra o banco usando o ORM da api/ (não via HTTP).
+> Por isso depende do `api/.venv` e da `DATABASE_URL` no `api/.env`.
+> Pra rodar contra prod a partir da máquina local, troque temporariamente
+> a `DATABASE_URL` ou rode pelo shell do container EasyPanel.
+
 ---
 
 ## Segurança

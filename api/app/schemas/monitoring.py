@@ -21,6 +21,16 @@ class StatusUpdateRequest(BaseModel):
     status: Literal["active", "paused", "removed"]
 
 
+class ResolveRequest(BaseModel):
+    """Input do usuário (link YouTube ou ID puro) que vai virar canal ou vídeo."""
+    raw: str
+
+
+class ResolveResponse(BaseModel):
+    kind: Literal["channel", "video"]
+    youtube_id: str
+
+
 # ---------------------------------------------------------------------------
 # Reads
 # ---------------------------------------------------------------------------

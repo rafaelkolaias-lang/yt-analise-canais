@@ -32,7 +32,9 @@ ENV NODE_ENV=production
 # Usuário não-root
 RUN addgroup -S nextjs -g 1001 && adduser -S nextjs -u 1001 -G nextjs
 
-COPY --from=builder --chown=nextjs:nextjs /app/public ./public
+# Nota: este projeto não usa /public (nenhum asset estático). Se um dia
+# alguma imagem/fonte for adicionada em web/public/, descomentar a linha:
+# COPY --from=builder --chown=nextjs:nextjs /app/public ./public
 COPY --from=builder --chown=nextjs:nextjs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nextjs /app/.next/static ./.next/static
 

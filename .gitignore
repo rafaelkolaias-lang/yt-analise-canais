@@ -87,6 +87,8 @@ dados/
 *.pfx
 secrets/
 credentials/
+SECRETS.local.md
+*.local.md
 
 # Virtualenvs Python
 .venv/

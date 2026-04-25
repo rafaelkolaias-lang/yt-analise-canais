@@ -207,6 +207,71 @@ novas (`app.seed.py`): rodar `python -m app.seed`.
 
 ---
 
+## Manutenção — o que fazer se…
+
+### …a URL pública da API mudar
+
+Por exemplo, se você mover de subdomínio EasyPanel ou apontar um domínio
+próprio. **Dois lugares precisam ser atualizados** (não tem auto-detecção):
+
+1. **Env var do `youtube-analyzer-web`** no EasyPanel: trocar `NEXT_PUBLIC_API_URL`
+   pra a nova URL. Como `NEXT_PUBLIC_*` é embutido em build time, é necessário
+   **redeployar o `-web`** (não basta reiniciar).
+2. **Env var do `youtube-analyzer-api`** no EasyPanel: trocar `CORS_ORIGINS`
+   pra incluir a nova URL do frontend (senão o navegador bloqueia).
+
+> Se em algum momento decidirmos hardcodar a URL da API como fallback dentro
+> do código (em vez de depender só da env var), o lugar é
+> [web/lib/api.ts](web/lib/api.ts) na constante `API_URL` (linha 1–2).
+
+### …a senha do banco for rotacionada
+
+1. Trocar `DATABASE_URL` na env var do `-api` no EasyPanel (lembrar de
+   URL-encodar a nova senha).
+2. Reiniciar (não precisa rebuildar — env var é runtime).
+3. Atualizar [SECRETS.local.md](SECRETS.local.md) localmente (gitignorado).
+
+### …`APP_SECRET_KEY` for trocada
+
+⚠️ **Cuidado.** As YouTube API keys cifradas no banco usam essa chave —
+trocar `APP_SECRET_KEY` torna os secrets cifrados **irrecuperáveis** (Fernet
+não tem backdoor).
+
+Procedimento seguro:
+1. Antes de trocar, no `/configuracoes` do frontend, **anotar** as YouTube
+   API keys atuais (você só consegue colar de novo, não decifrar via API).
+2. Trocar a env var `APP_SECRET_KEY` no `-api`.
+3. Reiniciar o `-api`.
+4. Voltar em `/configuracoes` e **colar de novo** a(s) key(s).
+
+### …adicionar/remover settings default
+
+Editar [api/app/seed.py](api/app/seed.py) (lista `DEFAULT_SETTINGS`),
+commitar, push, redeployar `-api`. Depois, no shell do container:
+```bash
+python -m app.seed
+```
+O seed é idempotente (só insere o que ainda não existe). Settings antigas
+removidas do código continuam no banco — apagar manualmente via SQL se
+quiser limpar.
+
+### …trocar o intervalo de sync sem rebuildar
+
+`Configurações → Sincronização → sync_interval_hours` no frontend, ou
+`PUT /api/settings/sync_interval_hours` direto. O scheduler reagenda em
+runtime — não precisa restart.
+
+### …adicionar um domínio próprio (em vez do subdomínio EasyPanel)
+
+1. Apontar o DNS (registro CNAME) pra `<subdomínio>.easypanel.host`.
+2. EasyPanel → serviço (`-web` ou `-api`) → aba **Domínios** → adicionar
+   o domínio próprio com HTTPS ligado (Let's Encrypt automático).
+3. Atualizar `NEXT_PUBLIC_API_URL` (no `-web`) e `CORS_ORIGINS` (no `-api`)
+   se mudar a URL da API.
+4. Redeployar `-web` (por causa do `NEXT_PUBLIC_*` em build time).
+
+---
+
 ## Segurança
 
 - `.env*` são ignorados pelo git (exceto `.env.example`). Conferir com:

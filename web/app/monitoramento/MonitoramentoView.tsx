@@ -1,8 +1,10 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ChannelAvatar } from "@/components/ChannelAvatar";
 import { useToast } from "@/components/Toaster";
+import { VideoThumbnail } from "@/components/VideoThumbnail";
 import {
   apiDelete,
   apiGet,
@@ -15,6 +17,9 @@ import {
 } from "@/lib/api";
 
 type Tab = "channels" | "videos" | "best";
+type VideoLayout = "list" | "grid";
+
+const VIDEO_LAYOUT_STORAGE_KEY = "monitoramento.videoLayout";
 
 type RowState = Record<string, "idle" | "loading" | "done" | "error">;
 
@@ -65,7 +70,29 @@ export function MonitoramentoView({
   const [videos, setVideos] = useState<MonitoredVideo[]>(initialVideos);
   const [bestByChannel, setBestByChannel] = useState<Record<number, MonitoredVideo[]>>({});
   const [rowState, setRowState] = useState<RowState>({});
+  const [videoLayout, setVideoLayout] = useState<VideoLayout>("list");
   const toast = useToast();
+
+  // Carrega preferência de layout uma vez no mount (evita flicker no SSR).
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(VIDEO_LAYOUT_STORAGE_KEY);
+      if (stored === "grid" || stored === "list") {
+        setVideoLayout(stored);
+      }
+    } catch {
+      /* localStorage indisponível, usa default */
+    }
+  }, []);
+
+  function changeVideoLayout(next: VideoLayout) {
+    setVideoLayout(next);
+    try {
+      window.localStorage.setItem(VIDEO_LAYOUT_STORAGE_KEY, next);
+    } catch {
+      /* ignore */
+    }
+  }
 
   const markRow = (k: string, s: RowState[string]) =>
     setRowState((prev) => ({ ...prev, [k]: s }));
@@ -269,12 +296,17 @@ export function MonitoramentoView({
                 return (
                   <tr key={c.id}>
                     <td>
-                      <a href={c.url ?? "#"} target="_blank" rel="noreferrer">
-                        {c.title}
-                      </a>
-                      {c.custom_url && (
-                        <div className="muted" style={{ fontSize: 10 }}>{c.custom_url}</div>
-                      )}
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <ChannelAvatar url={c.thumbnail_url} title={c.title} size={36} />
+                        <div style={{ minWidth: 0 }}>
+                          <a href={c.url ?? "#"} target="_blank" rel="noreferrer">
+                            {c.title}
+                          </a>
+                          {c.custom_url && (
+                            <div className="muted" style={{ fontSize: 10 }}>{c.custom_url}</div>
+                          )}
+                        </div>
+                      </div>
                     </td>
                     <td><StatusPill status={c.status} /></td>
                     <td style={{ textAlign: "right" }}>{formatInt(c.subscribers)}</td>
@@ -327,52 +359,180 @@ export function MonitoramentoView({
       )}
 
       {tab === "videos" && (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Vídeo</th>
-                <th>Status</th>
-                <th>Origem</th>
-                <th style={{ textAlign: "right" }}>Views</th>
-                <th style={{ textAlign: "right" }}>VPD atual</th>
-                <th style={{ textAlign: "right" }}>VPD inicial</th>
-                <th>Último sync</th>
-                <th style={{ width: 320 }}></th>
-              </tr>
-            </thead>
-            <tbody>
+        <>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 4,
+              marginBottom: -8,
+            }}
+          >
+            <button
+              type="button"
+              className={
+                videoLayout === "list" ? "btn-primary" : "btn-ghost"
+              }
+              onClick={() => changeVideoLayout("list")}
+              aria-pressed={videoLayout === "list"}
+              title="Visualização em lista"
+            >
+              Lista
+            </button>
+            <button
+              type="button"
+              className={
+                videoLayout === "grid" ? "btn-primary" : "btn-ghost"
+              }
+              onClick={() => changeVideoLayout("grid")}
+              aria-pressed={videoLayout === "grid"}
+              title="Visualização em grade"
+            >
+              Grade
+            </button>
+          </div>
+
+          {videos.length === 0 ? (
+            <div className="card">
+              <p className="muted" style={{ margin: 0 }}>
+                nenhum vídeo monitorado.
+              </p>
+            </div>
+          ) : videoLayout === "list" ? (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Vídeo</th>
+                    <th>Status</th>
+                    <th>Origem</th>
+                    <th style={{ textAlign: "right" }}>Views</th>
+                    <th style={{ textAlign: "right" }}>VPD atual</th>
+                    <th style={{ textAlign: "right" }}>VPD inicial</th>
+                    <th>Último sync</th>
+                    <th style={{ width: 320 }}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {videos.map((v) => {
+                    const snapState = rowState[`vd-snap:${v.id}`] ?? "idle";
+                    const toggleState = rowState[`vd-toggle:${v.id}`] ?? "idle";
+                    const delState = rowState[`vd-del:${v.id}`] ?? "idle";
+                    return (
+                      <tr key={v.id}>
+                        <td>
+                          <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                            <VideoThumbnail url={v.thumbnail_url} title={v.title} width={200} />
+                            <a
+                              href={v.url ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display: "block", paddingTop: 2 }}
+                            >
+                              {v.title}
+                            </a>
+                          </div>
+                        </td>
+                        <td><StatusPill status={v.status} /></td>
+                        <td className="muted" style={{ fontSize: 11 }}>{v.tracking_source ?? "—"}</td>
+                        <td style={{ textAlign: "right" }}>{formatInt(v.last_seen_views)}</td>
+                        <td style={{ textAlign: "right" }}>
+                          {v.last_seen_vpd != null ? formatInt(Math.round(v.last_seen_vpd)) : "—"}
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          {v.first_tracked_vpd != null ? formatInt(Math.round(v.first_tracked_vpd)) : "—"}
+                        </td>
+                        <td className="muted" style={{ fontSize: 11 }}>
+                          {formatDateShort(v.last_seen_at)}
+                        </td>
+                        <td>
+                          <div className="row-actions">
+                            <button
+                              className="btn-primary"
+                              disabled={snapState === "loading"}
+                              onClick={() => onSnapshotVideo(v)}
+                            >
+                              {snapState === "loading" ? "..." : "Atualizar agora"}
+                            </button>
+                            <button
+                              className="btn-ghost"
+                              disabled={toggleState === "loading"}
+                              onClick={() => onToggleVideoStatus(v)}
+                            >
+                              {v.status === "active" ? "Pausar" : "Retomar"}
+                            </button>
+                            <button
+                              className="btn-ghost danger"
+                              disabled={delState === "loading"}
+                              onClick={() => onDeleteVideo(v)}
+                            >
+                              Remover
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="video-grid">
               {videos.map((v) => {
                 const snapState = rowState[`vd-snap:${v.id}`] ?? "idle";
                 const toggleState = rowState[`vd-toggle:${v.id}`] ?? "idle";
-                const delState = rowState[`vd-del:${v.id}`] ?? "idle";
                 return (
-                  <tr key={v.id}>
-                    <td>
-                      <a href={v.url ?? "#"} target="_blank" rel="noreferrer">
+                  <article key={v.id} className="video-card">
+                    <a
+                      href={v.url ?? "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="video-card-thumb-link"
+                    >
+                      <VideoThumbnail
+                        url={v.thumbnail_url}
+                        title={v.title}
+                        width={320}
+                      />
+                    </a>
+                    <div className="video-card-body">
+                      <a
+                        href={v.url ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="video-card-title"
+                        title={v.title}
+                      >
                         {v.title}
                       </a>
-                    </td>
-                    <td><StatusPill status={v.status} /></td>
-                    <td className="muted" style={{ fontSize: 11 }}>{v.tracking_source ?? "—"}</td>
-                    <td style={{ textAlign: "right" }}>{formatInt(v.last_seen_views)}</td>
-                    <td style={{ textAlign: "right" }}>
-                      {v.last_seen_vpd != null ? formatInt(Math.round(v.last_seen_vpd)) : "—"}
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      {v.first_tracked_vpd != null ? formatInt(Math.round(v.first_tracked_vpd)) : "—"}
-                    </td>
-                    <td className="muted" style={{ fontSize: 11 }}>
-                      {formatDateShort(v.last_seen_at)}
-                    </td>
-                    <td>
-                      <div className="row-actions">
+                      <div className="video-card-meta">
+                        <StatusPill status={v.status} />
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          {formatInt(v.last_seen_views)} views
+                        </span>
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          VPD{" "}
+                          {v.last_seen_vpd != null
+                            ? formatInt(Math.round(v.last_seen_vpd))
+                            : "—"}
+                          {v.first_tracked_vpd != null && (
+                            <>
+                              {" "}
+                              <span style={{ opacity: 0.7 }}>
+                                (inicial{" "}
+                                {formatInt(Math.round(v.first_tracked_vpd))})
+                              </span>
+                            </>
+                          )}
+                        </span>
+                      </div>
+                      <div className="row-actions" style={{ marginTop: 8 }}>
                         <button
                           className="btn-primary"
                           disabled={snapState === "loading"}
                           onClick={() => onSnapshotVideo(v)}
                         >
-                          {snapState === "loading" ? "..." : "Atualizar agora"}
+                          {snapState === "loading" ? "..." : "Atualizar"}
                         </button>
                         <button
                           className="btn-ghost"
@@ -381,28 +541,14 @@ export function MonitoramentoView({
                         >
                           {v.status === "active" ? "Pausar" : "Retomar"}
                         </button>
-                        <button
-                          className="btn-ghost danger"
-                          disabled={delState === "loading"}
-                          onClick={() => onDeleteVideo(v)}
-                        >
-                          Remover
-                        </button>
                       </div>
-                    </td>
-                  </tr>
+                    </div>
+                  </article>
                 );
               })}
-              {videos.length === 0 && (
-                <tr>
-                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 16 }}>
-                    nenhum vídeo monitorado.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          )}
+        </>
       )}
 
       {tab === "best" && (
@@ -419,6 +565,7 @@ export function MonitoramentoView({
             return (
               <section key={c.id} className="card">
                 <header style={{ marginBottom: 10, display: "flex", alignItems: "center", gap: 10 }}>
+                  <ChannelAvatar url={c.thumbnail_url} title={c.title} size={32} />
                   <h3 style={{ margin: 0, fontSize: 14 }}>
                     <a href={c.url ?? "#"} target="_blank" rel="noreferrer">{c.title}</a>
                   </h3>
@@ -443,9 +590,21 @@ export function MonitoramentoView({
                         {list.map((v) => (
                           <tr key={v.id}>
                             <td>
-                              <a href={v.url ?? "#"} target="_blank" rel="noreferrer">
-                                {v.title}
-                              </a>
+                              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                                <VideoThumbnail
+                                  url={v.thumbnail_url}
+                                  title={v.title}
+                                  width={200}
+                                />
+                                <a
+                                  href={v.url ?? "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  style={{ display: "block", paddingTop: 2 }}
+                                >
+                                  {v.title}
+                                </a>
+                              </div>
                             </td>
                             <td style={{ textAlign: "right" }}>
                               {v.last_seen_vpd != null ? formatInt(Math.round(v.last_seen_vpd)) : "—"}

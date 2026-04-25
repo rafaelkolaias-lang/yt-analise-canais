@@ -12,9 +12,11 @@
 > - **Fase 6** (analytics: sinais, mini-gráficos por canal, nichos) — ✅
 > - **Fase 7** (UX polish: toaster, skeletons, indicador global de sync) — ✅
 > - **Fase 8** (Dockerfiles + docs prontos para deploy EasyPanel) — ✅
+> - **Deploy inicial em produção** (EasyPanel projeto `banco`) — ✅ 2026-04-24
 >
-> Código completo. Primeiro deploy real no EasyPanel é a próxima ação, a
-> critério do dono.
+> Sistema operacional 24/7. Próxima ação manual: configurar a YouTube API key
+> em `/configuracoes` pra começar a popular dados (sync já está agendado pro
+> próximo tick de 12h, mas precisa de key pra fazer requests reais).
 
 ---
 
@@ -286,24 +288,40 @@ Carregadas via `python -m app.seed` (idempotente):
 
 22. **Higiene de deploy**: `.env` e `.env.local` não podem vazar pro container — cobertos por [api/.dockerignore](api/.dockerignore) e [web/.dockerignore](web/.dockerignore) (além do `.gitignore`). Checklist: `git check-ignore -v api/.env web/.env.local` retorna linhas do gitignore → ambos bloqueados. `APP_SECRET_KEY` de prod vai só nas env vars do EasyPanel, **não** no repositório.
 
+23. **Lições do deploy real (2026-04-24)** — bugs/galhos achados em produção que a Fase 8 não cobriu e foram patched:
+
+   - **Scheduler crashava no startup com banco vazio**: o `lifespan` do FastAPI chama `scheduler.start()` que tentava ler `sync_interval_hours` do banco antes de existir tabela. Container morria antes do shell ficar acessível pra rodar alembic. Fix em [api/app/core/scheduler.py](api/app/core/scheduler.py): `_current_interval_hours()` agora envolve a leitura num `try/except` e usa `Settings.sync_interval_hours` (env var) como fallback. Loga warning pedindo alembic+seed.
+   - **Alembic quebrou com `ValueError: invalid interpolation syntax`**: senhas URL-encoded com `%XX` (ex.: `%24` pra `$`) faziam o ConfigParser interno do Alembic tentar interpolar. SQLAlchemy direto não sofre disso. Fix em [api/migrations/env.py](api/migrations/env.py): `.replace("%", "%%")` antes de `set_main_option`.
+   - **Dockerfile do web tinha `COPY /app/public` mas o projeto não tem `public/`**: build quebrou no stage runner. Fix em [web/Dockerfile](web/Dockerfile): linha removida (comentário de como reativar caso precise um dia).
+   - **Domínio do EasyPanel pedia "Protocolo do destino"**: marcando HTTPS, o proxy mandava TLS handshake pro uvicorn/next que servem **HTTP cru** dentro do container → "Invalid HTTP request received" + 500. Solução: **destino interno é HTTP**, externo é HTTPS (certificado Let's Encrypt cuidado pelo EasyPanel). Vale tanto pra `-api` (porta 8000) quanto pra `-web` (porta 3000).
+   - **Build args do Next.js (NEXT_PUBLIC_*)**: o EasyPanel **passa env vars do Ambiente como build-arg automaticamente** — não precisa de campo "Build Args" separado. Confirmado vendo o comando `docker buildx build --build-arg 'NEXT_PUBLIC_API_URL=...'` nos logs do build.
+
+24. **Fluxo recomendado pra primeira vez no EasyPanel** (resumo do que demos certo): (1) criar serviço `App` com Source apontando pro `/api` ou `/web`, (2) Construção em `Dockerfile` (não Nixpacks), (3) Ambiente com env vars, (4) Implantar, (5) **só depois do container estar verde**, adicionar Domínio na aba dedicada com **destino HTTP**, externo HTTPS, porta correta. Pra `-api`, depois rodar `alembic upgrade head` + `python -m app.seed` no shell do container (botão `>_` → Bash). Pra `-web`, basta o domínio ficar de pé.
+
 ---
 
-## Deploy (EasyPanel, pronto desde Fase 8)
+## Deploy (EasyPanel, em produção desde 2026-04-24)
 
-Serviços no projeto `youtube-analyzer` do EasyPanel:
-- `youtube-analyzer-api` (FastAPI, porta 8000) — build context `api/`, [api/Dockerfile](api/Dockerfile)
-- `youtube-analyzer-web` (Next.js, porta 3000) — build context `web/`, [web/Dockerfile](web/Dockerfile) (multi-stage usando `output: "standalone"`)
-- `youtube-analyzer-banco` (MySQL 8, host interno `banco_youtube-analyzer-banco:3306`) — já provisionado
+Projeto no EasyPanel: `banco`. Três serviços rodando:
 
-Subdomínios: padrões EasyPanel (`https://<servico>.<subdominio>.easypanel.host`).
-Deploy disparado por `git push` no branch configurado. Primeira vez precisa
-rodar no shell do container de API:
-```bash
-alembic upgrade head
-python -m app.seed
-```
-Depois configurar a YouTube API key em **/configuracoes**. Passo-a-passo
-completo em [README.md](README.md#deploy-no-easypanel).
+| Serviço | URL pública | Porta interna | Source |
+|---|---|---|---|
+| `youtube-analyzer-api` | https://banco-youtube-analyzer-api.cpgdmb.easypanel.host | 8000 | repo Git, `/api`, [api/Dockerfile](api/Dockerfile) |
+| `youtube-analyzer-web` | https://banco-youtube-analyzer-web.cpgdmb.easypanel.host | 3000 | repo Git, `/web`, [web/Dockerfile](web/Dockerfile) |
+| `youtube-analyzer-banco` | (interno) | 3306 | MySQL 8 provisionado pelo EasyPanel |
+
+Host interno do banco (acessível só dentro da rede do EasyPanel):
+`banco_youtube-analyzer-banco:3306`. É o que aparece no `DATABASE_URL` da API.
+
+Repo Git: https://github.com/rafaelkolaias-lang/yt-analise-canais (público,
+para deploy via Git padrão do EasyPanel funcionar sem chave SSH/Deploy Key).
+
+Deploy disparado:
+1. Manualmente (botão "Implantar" em cada serviço).
+2. Via webhook (URLs gravadas em `temporary_rules.md`, gitignorado).
+
+Passo-a-passo de manutenção operacional (URL muda, senha rotaciona, secret
+trocada, etc.) em [README.md → Manutenção](README.md#manutenção--o-que-fazer-se).
 
 ---
 
@@ -358,7 +376,9 @@ URLs: Dashboard <http://localhost:3000>, Swagger <http://localhost:8000/docs>.
 - **`useToast` fora de `<ToasterProvider>` lança erro** em runtime ("precisa estar dentro de ToasterProvider"). Como o provider envolve a app-shell inteira no layout, todos os componentes client têm acesso. Se criar nova página, não precisa nada extra.
 - **`NEXT_PUBLIC_API_URL` é lida em build time**, não runtime. Mudar a URL da API depois do deploy exige rebuild da imagem do `youtube-analyzer-web` — não basta trocar env var e restartar. No EasyPanel, passar como build arg além de env var pra garantir.
 - **`output: "standalone"` inclui `node_modules` só do que foi efetivamente importado**, numa cópia parcial em `.next/standalone/node_modules`. Se mudar o `next.config.ts` pra tirar o standalone, o `web/Dockerfile` atual **quebra** porque não vai existir `server.js`. Reverter os dois juntos ou não mudar.
-- **Docker Desktop não instalado na máquina dev** (2026-04-24) — o primeiro build real dos Dockerfiles vai ser no EasyPanel. Os Dockerfiles são padrões (FastAPI slim e Next.js multi-stage), mas se der erro no primeiro deploy, é esperado ajustar 1–2 linhas.
+- **Docker Desktop não instalado na máquina dev** (2026-04-24) — o primeiro build real dos Dockerfiles foi no EasyPanel. Resultaram em 3 fixes (scheduler tolerante a banco vazio, escape de `%` no env.py do Alembic, remoção do `COPY /app/public`).
+- **Domínios EasyPanel — destino HTTP, externo HTTPS**. Marcar HTTPS no destino faz o proxy Traefik mandar TLS pro uvicorn/Next que servem só HTTP cru no container → "Invalid HTTP request received" e 500. Vale pra `-api` (8000) e `-web` (3000).
+- **Webhook de deploy do EasyPanel é uma credencial**. Cada serviço tem seu próprio. Estão guardados em `temporary_rules.md` (gitignorado). Não ecoar em respostas pro usuário depois de salvos.
 
 ---
 

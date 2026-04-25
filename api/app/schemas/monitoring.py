@@ -32,6 +32,7 @@ class ChannelRead(BaseModel):
     title: str
     url: Optional[str] = None
     custom_url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
     status: str
     is_active: bool
     source: Optional[str] = None
@@ -58,6 +59,7 @@ class TrackedVideoRead(BaseModel):
     youtube_video_id: str
     title: str
     url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
     status: str
     tracking_source: Optional[str] = None
     first_tracked_at: datetime

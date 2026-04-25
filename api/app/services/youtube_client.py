@@ -203,7 +203,13 @@ def build_from_db(db: Session) -> YouTubeClient:
     raw_keys: list[str] = []
     if keys_row and keys_row.value:
         decrypted = decrypt(keys_row.value)
-        raw_keys = [k.strip() for k in decrypted.split(",") if k.strip()]
+        # Aceita keys separadas por vírgula OU quebra de linha (UI usa textarea
+        # multilinha; CSV continua funcionando pra compatibilidade).
+        raw_keys = [
+            k.strip()
+            for k in decrypted.replace("\r\n", "\n").replace(",", "\n").split("\n")
+            if k.strip()
+        ]
 
     daily_quota = 10000
     if quota_row and quota_row.value:

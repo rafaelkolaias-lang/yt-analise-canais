@@ -25,6 +25,19 @@ from app.services.discovery_service import (
 )
 
 
+def _pick_thumbnail(snippet: dict) -> Optional[str]:
+    """
+    YouTube devolve thumbnails em 3 tamanhos (default 88px, medium 240px, high 800px).
+    Pegamos a maior disponível — o frontend redimensiona via CSS pra cada uso.
+    """
+    thumbs = (snippet.get("thumbnails") or {}) if isinstance(snippet, dict) else {}
+    for key in ("high", "medium", "default"):
+        item = thumbs.get(key)
+        if isinstance(item, dict) and item.get("url"):
+            return str(item["url"])[:512]
+    return None
+
+
 def _get_or_create_channel_from_youtube(
     db: Session, yt_channel_id: str, client: Optional[youtube_client.YouTubeClient] = None
 ) -> Channel:
@@ -44,6 +57,7 @@ def _get_or_create_channel_from_youtube(
         title=(snippet.get("title") or "")[:255] or yt_channel_id,
         url=f"https://www.youtube.com/channel/{yt_channel_id}",
         custom_url=(snippet.get("customUrl") or "")[:255] or None,
+        thumbnail_url=_pick_thumbnail(snippet),
         status="active",
         source="discovery",
         is_active=True,
@@ -90,6 +104,7 @@ def add_video(db: Session, yt_video_id: str) -> TrackedVideo:
         youtube_video_id=yt_video_id,
         title=(snippet.get("title") or "")[:512] or yt_video_id,
         url=f"https://www.youtube.com/watch?v={yt_video_id}",
+        thumbnail_url=_pick_thumbnail(snippet),
         tracking_source="discovery",
         status="active",
         first_tracked_at=datetime.utcnow(),
@@ -213,6 +228,7 @@ def _accumulate_best_video(
         youtube_video_id=yt_video_id,
         title=(snippet.get("title") or "")[:512] or yt_video_id,
         url=f"https://www.youtube.com/watch?v={yt_video_id}",
+        thumbnail_url=_pick_thumbnail(snippet),
         tracking_source="best_from_channel",
         status="active",
         first_tracked_at=datetime.utcnow(),
@@ -346,6 +362,12 @@ def snapshot_channel(db: Session, channel_id: int, sample_size: int = 10) -> Cha
     views_total = int(stats.get("viewCount", 0) or 0)
     video_count = int(stats.get("videoCount", 0) or 0)
 
+    # Atualiza thumbnail (canal pode trocar avatar) — sem custo de quota extra,
+    # já temos os dados do channels.list aqui.
+    new_thumb = _pick_thumbnail(c.get("snippet") or {})
+    if new_thumb and new_thumb != channel.thumbnail_url:
+        channel.thumbnail_url = new_thumb
+
     # 2) melhor upload recente (pode ser o mesmo de snapshot anterior — não duplica)
     best = _pick_best_recent_upload(client, channel, sample_size)
     _accumulate_best_video(db, channel, best)
@@ -467,6 +489,9 @@ def snapshot_video(db: Session, tracked_video_id: int) -> VideoSnapshot:
     tv.last_seen_at = datetime.utcnow()
     if tv.first_tracked_vpd is None:
         tv.first_tracked_vpd = vpd
+    new_thumb = _pick_thumbnail(snippet)
+    if new_thumb and new_thumb != tv.thumbnail_url:
+        tv.thumbnail_url = new_thumb
 
     db.commit()
     db.refresh(snap)

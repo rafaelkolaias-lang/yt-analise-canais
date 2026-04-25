@@ -52,6 +52,7 @@ class Channel(Base):
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[Optional[str]] = mapped_column(String(512))
     custom_url: Mapped[Optional[str]] = mapped_column(String(255))
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(512))
 
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
     notes: Mapped[Optional[str]] = mapped_column(Text)
@@ -123,6 +124,7 @@ class TrackedVideo(Base):
     youtube_video_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     url: Mapped[Optional[str]] = mapped_column(String(512))
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(512))
 
     tracking_source: Mapped[Optional[str]] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")

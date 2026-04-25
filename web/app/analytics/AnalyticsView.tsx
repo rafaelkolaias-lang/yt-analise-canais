@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ChannelAvatar } from "@/components/ChannelAvatar";
 import { ChannelChart } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
@@ -202,7 +203,13 @@ export function AnalyticsView({ overview, channels, niches }: Props) {
               className="analytics-channel-card"
             >
               <div className="analytics-channel-header">
-                <div>
+                <div style={{ display: "flex", gap: 12, flex: 1, minWidth: 0 }}>
+                  <ChannelAvatar
+                    url={channel.thumbnail_url}
+                    title={channel.title}
+                    size={56}
+                  />
+                  <div style={{ flex: 1, minWidth: 0 }}>
                   <h3 style={{ margin: 0 }}>
                     {channel.url ? (
                       <a href={channel.url} target="_blank" rel="noreferrer">
@@ -228,6 +235,7 @@ export function AnalyticsView({ overview, channels, niches }: Props) {
                       {summary.signal_reason}
                     </div>
                   )}
+                  </div>
                 </div>
                 <span className={`status-pill ${signalClass}`}>
                   {signalLabel(signal)}

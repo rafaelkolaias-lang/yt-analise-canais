@@ -115,11 +115,16 @@ export function ConfiguracoesForm({ initial }: Props) {
               {items.map((item) => (
                 <div key={item.key} className="settings-row">
                   <div className="settings-meta">
-                    <code style={{ fontSize: 12 }}>{item.key}</code>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>
+                      {item.description || item.key}
+                    </div>
                     {item.description && (
-                      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-                        {item.description}
-                      </div>
+                      <code
+                        className="muted"
+                        style={{ fontSize: 11, marginTop: 2, display: "block" }}
+                      >
+                        {item.key}
+                      </code>
                     )}
                   </div>
                   <div className="settings-control">
@@ -129,6 +134,12 @@ export function ConfiguracoesForm({ initial }: Props) {
                         masked={item.value}
                         onSave={(v) => save(item.key, v)}
                         onClear={() => save(item.key, "")}
+                        multiline={item.key === "youtube.api_keys"}
+                        placeholder={
+                          item.key === "youtube.api_keys"
+                            ? "uma chave por linha"
+                            : undefined
+                        }
                       />
                     ) : (
                       <SettingInput

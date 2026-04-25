@@ -328,6 +328,12 @@ a {
   min-height: 32px;
 }
 
+/* Quando o controle tiver textarea multilinha (ex.: youtube.api_keys),
+   alinhar pelo topo em vez de centralizado pra ficar bonito junto dos botões */
+.settings-control:has(textarea) {
+  align-items: flex-start;
+}
+
 @media (max-width: 720px) {
   .settings-row {
     grid-template-columns: 1fr;
@@ -472,6 +478,76 @@ textarea.input {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------------ */
+/* Video grid (Monitoramento → aba Vídeos, modo grade)                 */
+/* ------------------------------------------------------------------ */
+.video-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.video-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  animation: fade-in 0.25s ease-out;
+}
+
+.video-card-thumb-link {
+  display: block;
+  line-height: 0;
+  background: var(--bg);
+}
+
+.video-card-thumb-link img,
+.video-card-thumb-link span {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+  border-radius: 0 !important;
+  border-left: none !important;
+  border-right: none !important;
+  border-top: none !important;
+  border-bottom: 1px solid var(--border) !important;
+}
+
+.video-card-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.video-card-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  border-bottom: 1px dashed transparent;
+  line-height: 1.35;
+}
+
+.video-card-title:hover {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.video-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
 }
 
 /* ------------------------------------------------------------------ */

@@ -145,6 +145,7 @@ export type MonitoredChannel = {
   title: string;
   url: string | null;
   custom_url: string | null;
+  thumbnail_url: string | null;
   status: string;
   is_active: boolean;
   source: string | null;
@@ -166,6 +167,7 @@ export type MonitoredVideo = {
   youtube_video_id: string;
   title: string;
   url: string | null;
+  thumbnail_url: string | null;
   status: string;
   tracking_source: string | null;
   first_tracked_at: string;

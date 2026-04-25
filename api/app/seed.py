@@ -116,7 +116,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": None,
         "value_type": "secret",
         "is_secret": True,
-        "description": "Chaves da YouTube Data API v3. CSV cifrado com Fernet (APP_SECRET_KEY).",
+        "description": "Chaves da YouTube Data API v3 (uma por linha). Cifradas com Fernet (APP_SECRET_KEY).",
     },
     {
         "key": "youtube.api_key_daily_quota",

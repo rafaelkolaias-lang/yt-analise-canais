@@ -177,6 +177,19 @@ export type MonitoredVideo = {
   last_seen_at?: string | null;
 };
 
+export type BulkOperationError = {
+  id: number;
+  message: string;
+};
+
+export type BulkOperationResponse = {
+  total: number;
+  success_count: number;
+  error_count: number;
+  processed_ids: number[];
+  errors: BulkOperationError[];
+};
+
 export type ChannelSnapshot = {
   id: number;
   channel_id: number;
@@ -290,4 +303,29 @@ export type NicheRow = {
   channels_count: number;
   avg_subscribers: number | null;
   avg_vpd: number | null;
+};
+
+export type ChannelAnalyticsBasic = {
+  id: number;
+  youtube_channel_id: string;
+  title: string;
+  url: string | null;
+  thumbnail_url: string | null;
+};
+
+export type ChannelAnalyticsBundle = {
+  channel: ChannelAnalyticsBasic;
+  summary: ChannelAnalyticsSummary;
+  subscribers_series: TimeseriesPoint[];
+  views_series: TimeseriesPoint[];
+  vpd_series: TimeseriesPoint[];
+  uploads_series: TimeseriesPoint[];
+};
+
+export type PaginatedChannelAnalytics = {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  items: ChannelAnalyticsBundle[];
 };

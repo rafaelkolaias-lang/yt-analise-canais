@@ -50,9 +50,9 @@ yt-analise-canais-web/
 │   │   │   ├── health.py             # / | /health | /health/db
 │   │   │   ├── settings.py           # /api/settings  (GET list, GET :key, PUT :key)
 │   │   │   ├── discovery.py          # /api/discovery/{defaults,search,runs,runs/:id}
-│   │   │   ├── monitoring.py         # /api/monitoring/{channels,videos} + snapshot/patch/delete/best-videos
+│   │   │   ├── monitoring.py         # /api/monitoring/{channels,videos} + snapshot/patch/delete/best-videos + bulk-status/bulk-snapshot/bulk-delete
 │   │   │   ├── sync.py               # /api/sync/{status,run,runs}
-│   │   │   └── analytics.py          # /api/analytics/{overview,channels/:id/{timeseries,summary},niches}
+│   │   │   └── analytics.py          # /api/analytics/{overview,channels(paginado),channels/:id/{timeseries,summary},niches}
 │   │   ├── services/
 │   │   │   ├── settings_service.py   # público: sempre mascara secrets
 │   │   │   ├── settings_reader.py    # interno: get_int/get_float/get_str/get_csv com cast
@@ -64,9 +64,9 @@ yt-analise-canais-web/
 │   │   ├── schemas/
 │   │   │   ├── settings.py           # AppSettingRead / AppSettingUpdate
 │   │   │   ├── discovery.py          # SearchRequest, DefaultFiltersRead, ResultChannel/Video, DiscoveryRunRead
-│   │   │   ├── monitoring.py         # AddChannel/VideoRequest, ChannelRead, TrackedVideoRead, ChannelWithStats
+│   │   │   ├── monitoring.py         # AddChannel/VideoRequest, ChannelRead, TrackedVideoRead, ChannelWithStats, BulkIdsRequest, BulkStatusRequest, BulkOperationResponse
 │   │   │   ├── sync.py               # SyncRunRead, SyncStatusRead
-│   │   │   └── analytics.py          # AnalyticsOverview, TimeseriesPoint, ChannelAnalyticsSummary, NicheRow
+│   │   │   └── analytics.py          # AnalyticsOverview, TimeseriesPoint, ChannelAnalyticsSummary, NicheRow, ChannelBasic, ChannelAnalyticsBundle, PaginatedChannelAnalytics
 │   │   └── models/
 │   │       ├── __init__.py           # re-exporta todas as entidades
 │   │       └── domain.py             # 11 entidades SQLAlchemy (ver "Modelo de dados")
@@ -118,7 +118,9 @@ yt-analise-canais-web/
 │   │   ├── GlobalSyncIndicator.tsx    # badge no topo que polla /api/sync/status a cada 5s
 │   │   ├── Skeleton.tsx               # bloco animado (shimmer) para estados de loading
 │   │   └── ErrorCard.tsx              # cartão de erro padronizado com botão "Tentar de novo"
-│   ├── lib/api.ts                    # apiGet/Post/Patch/Delete + todos os tipos
+│   ├── lib/
+│   │   ├── api.ts                    # apiGet/Post/Patch/Delete + todos os tipos
+│   │   └── useIsMobile.ts            # hook matchMedia ≤768px (SSR-safe)
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── next.config.ts                # output: "standalone" (pro Dockerfile)
@@ -167,6 +169,7 @@ yt-analise-canais-web/
 | Regras de analytics (agregação snapshots) | [api/app/services/analytics_service.py](api/app/services/analytics_service.py), [api/app/routers/analytics.py](api/app/routers/analytics.py) |
 | **Frontend** | |
 | Cliente HTTP + tipos | [web/lib/api.ts](web/lib/api.ts) |
+| Hook `useIsMobile` (matchMedia) | [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) |
 | Layout/navegação | [web/app/layout.tsx](web/app/layout.tsx), [web/components/Sidebar.tsx](web/components/Sidebar.tsx) |
 | Estilo global | [web/app/globals.css](web/app/globals.css) |
 | Dashboard | [web/app/page.tsx](web/app/page.tsx), [web/app/DashboardSyncPanel.tsx](web/app/DashboardSyncPanel.tsx) |
@@ -240,6 +243,9 @@ Carregadas via `python -m app.seed` (idempotente):
 | PATCH | `/api/monitoring/channels/{id}` | Altera `status` (`active`/`paused`/`removed`) |
 | DELETE | `/api/monitoring/channels/{id}` | Remove canal + cascata (snapshots, vídeos, tags) |
 | POST | `/api/monitoring/channels/{id}/snapshot` | Snapshot imediato + detecta melhor upload recente (~3 units) |
+| PATCH | `/api/monitoring/channels/bulk-status` | Status em lote (`{ids, status}`) — resposta `BulkOperationResponse` |
+| POST | `/api/monitoring/channels/bulk-snapshot` | Snapshot em lote (`{ids}`) |
+| POST | `/api/monitoring/channels/bulk-delete` | Remoção em lote (`{ids}`, POST e não DELETE pra ter body) |
 | GET | `/api/monitoring/channels/{id}/best-videos` | Lista acumulativa de melhores vídeos detectados |
 | GET | `/api/monitoring/videos` | Lista vídeos monitorados com `last_seen_*` |
 | POST | `/api/monitoring/videos` | Adiciona vídeo por `youtube_video_id` (cria canal dono se preciso) |
@@ -247,10 +253,14 @@ Carregadas via `python -m app.seed` (idempotente):
 | PATCH | `/api/monitoring/videos/{id}` | Altera status |
 | DELETE | `/api/monitoring/videos/{id}` | Remove vídeo + cascata (snapshots) |
 | POST | `/api/monitoring/videos/{id}/snapshot` | Snapshot imediato do vídeo com deltas |
+| PATCH | `/api/monitoring/videos/bulk-status` | Status em lote |
+| POST | `/api/monitoring/videos/bulk-snapshot` | Snapshot em lote |
+| POST | `/api/monitoring/videos/bulk-delete` | Remoção em lote |
 | GET | `/api/sync/status` | `{interval_hours, next_run_at, last_run}` pro Dashboard |
 | POST | `/api/sync/run` | Dispara sync manual síncrono (`type='manual'`) |
 | GET | `/api/sync/runs?limit=` | Histórico de sync_runs (manual + scheduled) |
 | GET | `/api/analytics/overview` | Contadores por `signal` do último snapshot de cada canal + vídeos acelerando |
+| GET | `/api/analytics/channels?page=1&page_size=10` | **Bundle paginado**: canal + summary + 4 séries por página, em 1 request por página |
 | GET | `/api/analytics/channels/{id}/timeseries?metric=` | Série temporal (`subscribers\|views_total\|avg_vpd_recent\|uploads_per_week`) |
 | GET | `/api/analytics/channels/{id}/summary` | Totais + crescimento % 7d/30d + uploads/sem |
 | GET | `/api/analytics/niches` | Agregação por tag: channels_count, avg_subscribers, avg_vpd |
@@ -291,7 +301,7 @@ Carregadas via `python -m app.seed` (idempotente):
 
 16. **Overview analytics**: `analytics_service.overview()` agrupa pelo `signal` do **último** `ChannelSnapshot` de cada canal (subquery `MAX(captured_at)` por `channel_id`). `videos_accelerating` compara os 2 últimos `VideoSnapshot` por vídeo e conta onde `vpd[0] > vpd[1]`. Canais com snapshots anteriores à Fase 6 aparecem como `channels_unknown` até receberem novo snapshot.
 
-17. **Gráficos no frontend**: página `/analytics` é um server component que pré-carrega `/overview`, canais e nichos em paralelo, e delega pra `AnalyticsView` (client). Cada cartão de canal dispara 5 fetches paralelos (`summary` + 4 `timeseries`) via `Promise.all`, então N canais = 5N requests. Gráficos via `ChannelChart` (Recharts `LineChart`/`BarChart` com tooltip pt-BR). Canal sem dados mostra "coletando dados…" em vez de gráfico vazio.
+17. **Gráficos no frontend (paginado, 2026-04-25)**: página `/analytics` é um server component que pré-carrega só `overview` + `niches` (não busca mais a lista de canais via `/api/monitoring/channels`). `AnalyticsView` (client) faz **1 request por página** em `GET /api/analytics/channels?page=...&page_size=...` que devolve um `PaginatedChannelAnalytics` com bundle agregado (canal + summary + 4 séries). Substituiu o modelo anterior de `5N requests` (5 fetches paralelos por canal × N canais) que derrubava o site quando havia muitos canais. Service `channels_paginated()` em [api/app/services/analytics_service.py](api/app/services/analytics_service.py) reusa `channel_summary` e `timeseries`. UI tem `Anterior` / `Próxima`, seletor 10/20/50 e contador. Endpoints unitários (`/summary`, `/timeseries`) **mantidos** para reuso futuro/depuração — só a tela principal não depende mais deles em massa. Skeleton dimensionado pela `page_size`, não pelo total de canais.
 
 18. **Feedback global** (Fase 7): qualquer ação (sync manual, snapshot, salvar config, adicionar canal/vídeo, busca) que antes mostrava erro/sucesso inline agora dispara um toast via `useToast()` do `<ToasterProvider>` montado em [web/app/layout.tsx](web/app/layout.tsx). Handlers de erro chamam `toast.error(msg)` e re-lançam quando o caller precisa reagir (ex.: `ConfiguracoesForm.save` re-lança pra o `SecretInput` saber que não deve fechar o editor). `AnalyticsView` usa `<ErrorCard>` com botão "Tentar de novo" porque o erro de carga inicial precisa de permanência, não um toast efêmero.
 
@@ -331,7 +341,13 @@ Carregadas via `python -m app.seed` (idempotente):
 
 32. **Filtros + ordenação client-side** em Monitoramento → abas Canais e Vídeos. Componentes [web/components/ChannelsFilterBar.tsx](web/components/ChannelsFilterBar.tsx) e [web/components/VideosFilterBar.tsx](web/components/VideosFilterBar.tsx) exportam (a) o componente da barra, (b) o tipo dos filtros, (c) o default e (d) a função `apply...Filters(list, filters)` que filtra+ordena. `MonitoramentoView` mantém 2 states de filtros e usa `useMemo` pra derivar listas. **Não persiste** em localStorage (decisão deliberada: F5 reseta — evita "sumiço fantasma" de canal por filtro esquecido). Empty state diferenciado: lista vazia ("nenhum canal monitorado") vs filtro vazio ("nenhum corresponde aos filtros aplicados") com botão Limpar visível só quando há filtro ativo. Decisão de escala: client-side suporta tranquilamente até alguns milhares de itens; se um dia escalar pra 10k+, migrar pra query params na API.
 
-33. **Ordenação por header clicável** ([web/components/SortableHeader.tsx](web/components/SortableHeader.tsx)): nas tabelas em modo lista, clicar num `<th>` ordenável cicla 3 estados (null → desc → asc → default). Setinha (↕ inativo / ↓ desc / ↑ asc) em `var(--accent)` quando ativa. Algumas colunas têm só `descKey` (Δ Inscritos, VPD inicial, Último sync) — nesses casos o ciclo vira 2 estados (null → desc → default). No **modo grade da aba Vídeos** não há header pra clicar, então `VideosFilterBar` aceita `showSortDropdown` como prop e renderiza um `<select>` inline só nesse caso (`MonitoramentoView` passa `videoLayout === "grid"`). A seleção de coluna no header e o dropdown da grade compartilham o mesmo estado `videoFilters.sort` — alternar layout preserva a ordenação.
+33. **Ordenação por header clicável** ([web/components/SortableHeader.tsx](web/components/SortableHeader.tsx)): nas tabelas em modo lista, clicar num `<th>` ordenável cicla 3 estados (null → desc → asc → default). Setinha (↕ inativo / ↓ desc / ↑ asc) em `var(--accent)` quando ativa. Algumas colunas têm só `descKey` (Δ Inscritos, VPD inicial, Último sync) — nesses casos o ciclo vira 2 estados (null → desc → default). No **modo grade da aba Vídeos** e em **mobile (≤768px)** não há header pra clicar, então `VideosFilterBar` e `ChannelsFilterBar` aceitam `showSortDropdown` como prop e renderizam um `<select>` inline (`MonitoramentoView` passa `videoLayout === "grid" || isMobile` e `isMobile` respectivamente). Header desktop e dropdown mobile/grade compartilham o mesmo estado `*Filters.sort` — alternar contexto preserva a ordenação.
+
+34. **Ações em massa em Monitoramento** (2026-04-25): canais e vídeos têm 6 endpoints bulk em [api/app/routers/monitoring.py](api/app/routers/monitoring.py): `bulk-status` (PATCH), `bulk-snapshot` (POST) e `bulk-delete` (POST, não DELETE — body `{ids}` no DELETE quebra clientes simples). Helper `_run_bulk(ids, op)` itera item a item capturando exceções por id e devolve `BulkOperationResponse {total, success_count, error_count, processed_ids, errors:[{id,message}]}` — falha individual **não** trava o lote. Reusa `monitoring_service.set_channel_status / snapshot_channel / delete_channel` (e equivalentes de vídeo). Importante: as rotas bulk são registradas **antes** das `/{id}` no router para FastAPI não tentar casar `bulk-status` contra o path param `int`. Frontend ([web/app/monitoramento/MonitoramentoView.tsx](web/app/monitoramento/MonitoramentoView.tsx)) tem estado `selectedChannelIds: Set<number>` e `selectedVideoIds: Set<number>`, checkbox por linha + header com `indeterminate`, barra `.bulk-actions-bar` com Atualizar/Pausar-Retomar/Remover/Limpar (botão único quando seleção é homogênea, dois botões quando mistura `active`+`paused`). Após resposta: `processed_ids` saem da seleção (falhados ficam pra retry), `useEffect` limpa IDs stale após `refreshChannels/refreshVideos`. Toast resume sucesso total/parcial (com amostra de 3 erros + contador).
+
+35. **Responsividade real** (2026-04-25, Plano A + Plano B): a aplicação não é mais desktop-only.
+    - **Plano A (shell + breakpoints)**: [web/components/Sidebar.tsx](web/components/Sidebar.tsx) virou drawer mobile com botão hambúrguer fixed, ESC fecha, troca de rota fecha, click no overlay fecha, `body { overflow: hidden }` enquanto aberto. [web/app/globals.css](web/app/globals.css) tem 3 breakpoints reais: ≤1024 (sidebar 200px, padding reduzido, analytics-overview 2 col), ≤768 (sidebar fixed transformX, hambúrguer aparece, `.main` ganha padding-top 64px, tabs roláveis horizontalmente, filter-bar quebra em linhas, row-actions com tap target ≥36px, tabelas com `overflow-x: auto` + paddings reduzidos, toaster ancorado no rodapé largura quase total, card-grid 1 col, video-grid `minmax(220px,1fr)`), ≤480 (tipografia menor, botões 36px+, bulk-actions empilhada com botões 38px+). Bulk-actions já empilha em ≤600.
+    - **Plano B (cards stackados em `/monitoramento`)**: hook [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) usa `matchMedia` (default ≤768), SSR-safe. `MonitoramentoView` renderiza **dois blocos** por aba — `desktop-only` (tabela existente) e `mobile-only` (lista de `.mobile-card`). Cards têm header (checkbox + avatar + título + status), grid 2x2 de meta, ações row, e uma toolbar acima com "Selecionar todos / Desmarcar todos" + contador. `ChannelsFilterBar` ganhou `showSortDropdown` espelhando o que `VideosFilterBar` já tinha — em mobile ambos mostram select de ordenação inline. Aba Vídeos > grid já era responsiva, não foi tocada. Estado e handlers de seleção/bulk **reaproveitados** sem duplicação. Outras telas (`/dashboard`, `/descoberta`, `/runs`, `/configuracoes`) já usam grids responsivos (`card-grid`, `form-grid`, `settings-row`) e `.table-wrap` com `overflow-x` — sem intervenção pontual necessária. **Validação visual em 360/390/768/1024 é responsabilidade do usuário** (a IA não testa visual).
 
 ---
 

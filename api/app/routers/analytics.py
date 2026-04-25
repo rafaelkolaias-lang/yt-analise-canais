@@ -11,6 +11,7 @@ from app.schemas.analytics import (
     AnalyticsOverview,
     ChannelAnalyticsSummary,
     NicheRow,
+    PaginatedChannelAnalytics,
     TimeseriesPoint,
 )
 from app.services import analytics_service
@@ -22,6 +23,16 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 def get_overview(db: Session = Depends(get_db)) -> AnalyticsOverview:
     data = analytics_service.overview(db)
     return AnalyticsOverview(**data)
+
+
+@router.get("/channels", response_model=PaginatedChannelAnalytics)
+def get_channels_paginated(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    db: Session = Depends(get_db),
+) -> PaginatedChannelAnalytics:
+    data = analytics_service.channels_paginated(db, page, page_size)
+    return PaginatedChannelAnalytics(**data)
 
 
 @router.get("/channels/{channel_id}/timeseries", response_model=list[TimeseriesPoint])

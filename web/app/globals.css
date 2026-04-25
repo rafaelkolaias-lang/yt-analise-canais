@@ -44,6 +44,30 @@ a {
   padding: 20px 12px;
 }
 
+/* Botão hamburger e overlay só ficam ativos em telas pequenas. */
+.sidebar-toggle {
+  display: none;
+  position: fixed;
+  top: 12px;
+  left: 12px;
+  z-index: 60;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: 40px;
+  height: 40px;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-overlay {
+  display: none;
+}
+
 .sidebar h1 {
   font-size: 16px;
   margin: 0 0 20px 8px;
@@ -788,3 +812,399 @@ textarea.input {
     width: 100%;
   }
 }
+
+/* ------------------------------------------------------------------ */
+/* Bulk actions bar (monitoramento)                                    */
+/* ------------------------------------------------------------------ */
+.bulk-actions-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--bg-elev);
+  border: 1px solid var(--accent, #4f46e5);
+  border-radius: 8px;
+  margin-bottom: 8px;
+  animation: fade-in 0.18s ease-out;
+}
+
+.bulk-actions-info {
+  font-size: 13px;
+}
+
+.bulk-actions-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+tr.row-selected > td {
+  background: rgba(79, 70, 229, 0.08);
+}
+
+.video-card {
+  position: relative;
+}
+
+.video-card-selected {
+  outline: 2px solid var(--accent, #4f46e5);
+  outline-offset: -1px;
+}
+
+.video-card-select {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(11, 16, 32, 0.75);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+  cursor: pointer;
+  backdrop-filter: blur(2px);
+}
+
+.video-card-select input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  .bulk-actions-bar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .bulk-actions-buttons {
+    width: 100%;
+  }
+  .bulk-actions-buttons > button {
+    flex: 1;
+  }
+}
+
+/* ================================================================== */
+/* Responsividade — breakpoints                                        */
+/*                                                                     */
+/* >1024  : layout desktop padrão (sidebar fixa 240px + main)          */
+/* ≤1024  : padding lateral menor, grids mais compactos                */
+/* ≤768   : sidebar vira drawer (escondida), botão hamburger aparece   */
+/* ≤480   : tipografia menor, controles em coluna, toaster largo       */
+/* ================================================================== */
+
+/* ---- ≤1024 (tablet/laptop pequeno) ---- */
+@media (max-width: 1024px) {
+  .app-shell {
+    grid-template-columns: 200px 1fr;
+  }
+  .main {
+    padding: 20px 20px;
+  }
+  .analytics-overview-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* ---- ≤768 (mobile/tablet) — sidebar vira drawer ---- */
+@media (max-width: 768px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 260px;
+    max-width: 80vw;
+    z-index: 80;
+    transform: translateX(-100%);
+    transition: transform 0.22s ease-out;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.4);
+    padding-top: 64px; /* abaixo do botão hamburger */
+    overflow-y: auto;
+  }
+
+  .sidebar.sidebar-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    z-index: 70;
+    animation: fade-in 0.18s ease-out;
+  }
+
+  .main {
+    padding: 64px 16px 20px;
+    max-width: none;
+  }
+
+  .page-header h2 {
+    font-size: 19px;
+  }
+
+  /* Tabs: roláveis horizontalmente sem truncar */
+  .tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+  }
+  .tab {
+    flex: 0 0 auto;
+    padding: 8px 12px;
+  }
+
+  /* Filtros quebram em múltiplas linhas, inputs ocupam linha inteira */
+  .filter-bar {
+    gap: 6px;
+  }
+  .filter-bar-search {
+    flex: 1 1 100%;
+  }
+
+  /* Row actions empilham e ganham tap target maior */
+  .row-actions {
+    gap: 4px;
+  }
+  .row-actions > button {
+    min-height: 36px;
+  }
+
+  /* Tabelas seguem rolando horizontalmente, mas com padding reduzido */
+  .table-wrap {
+    border-radius: 6px;
+  }
+  .table-wrap table {
+    font-size: 12px;
+  }
+  .table-wrap th,
+  .table-wrap td {
+    padding: 8px 6px;
+  }
+
+  /* Grids responsivos */
+  .analytics-overview-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+  .video-grid {
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  }
+
+  /* Toaster: ocupa quase a tela inteira, ancorado no rodapé */
+  .toaster {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+  }
+  .toast {
+    min-width: 0;
+    max-width: none;
+  }
+
+  /* GlobalSyncIndicator: empurra abaixo do header com hamburger */
+  .global-sync-indicator {
+    margin-top: 0;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ================================================================== */
+/* Plano B — cards stackados em mobile (Monitoramento)                 */
+/* ================================================================== */
+
+/* Por default a versão mobile (cards) é escondida; a desktop (tabela) */
+/* aparece. Em ≤768 invertemos. */
+.mobile-only {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .desktop-only {
+    display: none !important;
+  }
+  .mobile-only {
+    display: block;
+  }
+}
+
+/* Lista de cards (canais ou vídeos) no mobile */
+.mobile-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  animation: fade-in 0.18s ease-out;
+}
+
+.mobile-card.row-selected {
+  outline: 2px solid var(--accent, #4f8cff);
+  outline-offset: -1px;
+}
+
+.mobile-card-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.mobile-card-checkbox {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding-top: 4px;
+}
+
+.mobile-card-title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-card-title a {
+  font-weight: 600;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.mobile-card-meta {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px 10px;
+  font-size: 12px;
+}
+
+.mobile-card-meta .label {
+  color: var(--text-dim);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  display: block;
+}
+
+.mobile-card-meta .value {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.mobile-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mobile-card-actions > button {
+  flex: 1 1 auto;
+  min-height: 36px;
+}
+
+.mobile-card-thumb {
+  width: 100%;
+  border-radius: 6px;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.mobile-card-thumb img,
+.mobile-card-thumb span {
+  width: 100% !important;
+  height: auto !important;
+  aspect-ratio: 16 / 9;
+  border-radius: 0 !important;
+  border: none !important;
+  display: block;
+}
+
+/* Toolbar mobile (substitui o checkbox de header e o sort por colunas) */
+.mobile-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 2px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.mobile-list-toolbar > .spacer {
+  flex: 1;
+}
+
+.mobile-list-toolbar button {
+  font-size: 12px;
+  padding: 4px 10px;
+  min-height: 32px;
+}
+
+/* ---- ≤480 (smartphone) ---- */
+@media (max-width: 480px) {
+  .main {
+    padding: 64px 12px 16px;
+  }
+
+  .page-header h2 {
+    font-size: 18px;
+  }
+  .page-header p {
+    font-size: 12px;
+  }
+
+  .analytics-overview-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+  .analytics-overview-grid .card {
+    padding: 10px;
+  }
+
+  /* Botões maiores pra toque */
+  .btn-primary,
+  .btn-ghost {
+    min-height: 36px;
+    padding: 6px 10px;
+  }
+
+  /* Filter bar: campo de busca em linha única */
+  .filter-bar {
+    padding: 8px 10px;
+  }
+  .filter-bar .input,
+  .filter-bar select {
+    font-size: 13px;
+  }
+
+  /* Bulk-actions já estava em coluna a partir de 600px (regra acima);
+     reforçar tap targets aqui */
+  .bulk-actions-buttons > button {
+    min-height: 38px;
+  }
+}
+

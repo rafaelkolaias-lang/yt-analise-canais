@@ -26,11 +26,13 @@ import {
   apiGet,
   apiPatch,
   apiPost,
+  type BulkOperationResponse,
   type ChannelSnapshot,
   type MonitoredChannel,
   type MonitoredVideo,
   type VideoSnapshot,
 } from "@/lib/api";
+import { useIsMobile } from "@/lib/useIsMobile";
 
 type Tab = "channels" | "videos" | "best";
 type VideoLayout = "list" | "grid";
@@ -93,6 +95,14 @@ export function MonitoramentoView({
   const [videoFilters, setVideoFilters] = useState<VideoFilters>(
     DEFAULT_VIDEO_FILTERS
   );
+  const [selectedChannelIds, setSelectedChannelIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [selectedVideoIds, setSelectedVideoIds] = useState<Set<number>>(
+    () => new Set()
+  );
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const isMobile = useIsMobile();
   const toast = useToast();
 
   const filteredChannels = useMemo(
@@ -258,6 +268,246 @@ export function MonitoramentoView({
   }
 
   // -------------------------------------------------------------------------
+  // Seleção múltipla — helpers genéricos
+  // -------------------------------------------------------------------------
+  const toggleChannelSelected = useCallback((id: number) => {
+    setSelectedChannelIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleVideoSelected = useCallback((id: number) => {
+    setSelectedVideoIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const setChannelsSelectAll = useCallback(
+    (ids: number[], checked: boolean) => {
+      setSelectedChannelIds((prev) => {
+        const next = new Set(prev);
+        if (checked) ids.forEach((i) => next.add(i));
+        else ids.forEach((i) => next.delete(i));
+        return next;
+      });
+    },
+    []
+  );
+
+  const setVideosSelectAll = useCallback(
+    (ids: number[], checked: boolean) => {
+      setSelectedVideoIds((prev) => {
+        const next = new Set(prev);
+        if (checked) ids.forEach((i) => next.add(i));
+        else ids.forEach((i) => next.delete(i));
+        return next;
+      });
+    },
+    []
+  );
+
+  const clearChannelSelection = useCallback(
+    () => setSelectedChannelIds(new Set()),
+    []
+  );
+  const clearVideoSelection = useCallback(
+    () => setSelectedVideoIds(new Set()),
+    []
+  );
+
+  // Após refresh, limpa IDs selecionados que não existem mais (stale).
+  useEffect(() => {
+    setSelectedChannelIds((prev) => {
+      if (prev.size === 0) return prev;
+      const present = new Set(channels.map((c) => c.id));
+      let changed = false;
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (present.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [channels]);
+
+  useEffect(() => {
+    setSelectedVideoIds((prev) => {
+      if (prev.size === 0) return prev;
+      const present = new Set(videos.map((v) => v.id));
+      let changed = false;
+      const next = new Set<number>();
+      for (const id of prev) {
+        if (present.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [videos]);
+
+  // -------------------------------------------------------------------------
+  // Bulk handlers — canais
+  // -------------------------------------------------------------------------
+  function summarizeBulk(label: string, resp: BulkOperationResponse) {
+    const { total, success_count, error_count, errors } = resp;
+    if (error_count === 0) {
+      toast.success(`${label}: ${success_count}/${total} concluídos.`);
+      return;
+    }
+    const sample = errors
+      .slice(0, 3)
+      .map((e) => `#${e.id}: ${e.message}`)
+      .join(" · ");
+    const more = error_count > 3 ? ` (+${error_count - 3})` : "";
+    if (success_count === 0) {
+      toast.error(`${label}: ${total} falhas. ${sample}${more}`);
+    } else {
+      toast.error(
+        `${label}: ${success_count}/${total} ok, ${error_count} falharam. ${sample}${more}`
+      );
+    }
+  }
+
+  async function runBulkChannels(
+    label: string,
+    method: "POST" | "PATCH",
+    path: string,
+    body: Record<string, unknown>
+  ) {
+    setBulkBusy(true);
+    try {
+      const resp =
+        method === "POST"
+          ? await apiPost<BulkOperationResponse>(path, body)
+          : await apiPatch<BulkOperationResponse>(path, body);
+      summarizeBulk(label, resp);
+      // Mantém só os IDs que falharam — processados saem da seleção.
+      const processed = new Set(resp.processed_ids);
+      setSelectedChannelIds((prev) => {
+        const next = new Set<number>();
+        for (const id of prev) if (!processed.has(id)) next.add(id);
+        return next;
+      });
+      await refreshChannels();
+    } catch (e) {
+      toast.error(`${label}: ${describeError(e)}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function onBulkSnapshotChannels() {
+    const ids = Array.from(selectedChannelIds);
+    if (ids.length === 0) return;
+    runBulkChannels(
+      "Atualizar canais",
+      "POST",
+      "/api/monitoring/channels/bulk-snapshot",
+      { ids }
+    );
+  }
+
+  function onBulkSetChannelStatus(targetStatus: "active" | "paused") {
+    const ids = Array.from(selectedChannelIds);
+    if (ids.length === 0) return;
+    const label = targetStatus === "active" ? "Retomar canais" : "Pausar canais";
+    runBulkChannels(
+      label,
+      "PATCH",
+      "/api/monitoring/channels/bulk-status",
+      { ids, status: targetStatus }
+    );
+  }
+
+  function onBulkDeleteChannels() {
+    const ids = Array.from(selectedChannelIds);
+    if (ids.length === 0) return;
+    if (
+      !confirm(
+        `Remover ${ids.length} canal(is) e todo o histórico de snapshots? Esta ação não pode ser desfeita.`
+      )
+    ) {
+      return;
+    }
+    runBulkChannels(
+      "Remover canais",
+      "POST",
+      "/api/monitoring/channels/bulk-delete",
+      { ids }
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Bulk handlers — vídeos
+  // -------------------------------------------------------------------------
+  async function runBulkVideos(
+    label: string,
+    method: "POST" | "PATCH",
+    path: string,
+    body: Record<string, unknown>
+  ) {
+    setBulkBusy(true);
+    try {
+      const resp =
+        method === "POST"
+          ? await apiPost<BulkOperationResponse>(path, body)
+          : await apiPatch<BulkOperationResponse>(path, body);
+      summarizeBulk(label, resp);
+      const processed = new Set(resp.processed_ids);
+      setSelectedVideoIds((prev) => {
+        const next = new Set<number>();
+        for (const id of prev) if (!processed.has(id)) next.add(id);
+        return next;
+      });
+      await refreshVideos();
+    } catch (e) {
+      toast.error(`${label}: ${describeError(e)}`);
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  function onBulkSnapshotVideos() {
+    const ids = Array.from(selectedVideoIds);
+    if (ids.length === 0) return;
+    runBulkVideos(
+      "Atualizar vídeos",
+      "POST",
+      "/api/monitoring/videos/bulk-snapshot",
+      { ids }
+    );
+  }
+
+  function onBulkSetVideoStatus(targetStatus: "active" | "paused") {
+    const ids = Array.from(selectedVideoIds);
+    if (ids.length === 0) return;
+    const label = targetStatus === "active" ? "Retomar vídeos" : "Pausar vídeos";
+    runBulkVideos(
+      label,
+      "PATCH",
+      "/api/monitoring/videos/bulk-status",
+      { ids, status: targetStatus }
+    );
+  }
+
+  function onBulkDeleteVideos() {
+    const ids = Array.from(selectedVideoIds);
+    if (ids.length === 0) return;
+    if (!confirm(`Remover ${ids.length} vídeo(s) do monitoramento?`)) return;
+    runBulkVideos(
+      "Remover vídeos",
+      "POST",
+      "/api/monitoring/videos/bulk-delete",
+      { ids }
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Best videos por canal
   // -------------------------------------------------------------------------
   const loadBestForChannel = useCallback(
@@ -332,11 +582,124 @@ export function MonitoramentoView({
             totalCount={channels.length}
             filteredCount={filteredChannels.length}
             availableSources={availableChannelSources}
+            showSortDropdown={isMobile}
           />
-          <div className="table-wrap">
+          {(() => {
+            const visibleIds = filteredChannels.map((c) => c.id);
+            const visibleSelectedCount = visibleIds.filter((id) =>
+              selectedChannelIds.has(id)
+            ).length;
+            const allVisibleSelected =
+              visibleIds.length > 0 &&
+              visibleSelectedCount === visibleIds.length;
+            const selectedChannels = filteredChannels.filter((c) =>
+              selectedChannelIds.has(c.id)
+            );
+            const allActive =
+              selectedChannels.length > 0 &&
+              selectedChannels.every((c) => c.status === "active");
+            const allPaused =
+              selectedChannels.length > 0 &&
+              selectedChannels.every((c) => c.status === "paused");
+            return (
+              selectedChannelIds.size > 0 && (
+                <div className="bulk-actions-bar">
+                  <div className="bulk-actions-info">
+                    <strong>{selectedChannelIds.size}</strong> canal(is)
+                    selecionado(s)
+                  </div>
+                  <div className="bulk-actions-buttons">
+                    <button
+                      className="btn-primary"
+                      disabled={bulkBusy}
+                      onClick={onBulkSnapshotChannels}
+                    >
+                      Atualizar agora
+                    </button>
+                    {allActive ? (
+                      <button
+                        className="btn-ghost"
+                        disabled={bulkBusy}
+                        onClick={() => onBulkSetChannelStatus("paused")}
+                      >
+                        Pausar
+                      </button>
+                    ) : allPaused ? (
+                      <button
+                        className="btn-ghost"
+                        disabled={bulkBusy}
+                        onClick={() => onBulkSetChannelStatus("active")}
+                      >
+                        Retomar
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="btn-ghost"
+                          disabled={bulkBusy}
+                          onClick={() => onBulkSetChannelStatus("paused")}
+                        >
+                          Pausar selecionados
+                        </button>
+                        <button
+                          className="btn-ghost"
+                          disabled={bulkBusy}
+                          onClick={() => onBulkSetChannelStatus("active")}
+                        >
+                          Retomar selecionados
+                        </button>
+                      </>
+                    )}
+                    <button
+                      className="btn-ghost danger"
+                      disabled={bulkBusy}
+                      onClick={onBulkDeleteChannels}
+                    >
+                      Remover
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      disabled={bulkBusy}
+                      onClick={clearChannelSelection}
+                    >
+                      Limpar seleção
+                    </button>
+                  </div>
+                </div>
+              )
+            );
+          })()}
+          <div className="table-wrap desktop-only">
           <table className="table">
             <thead>
               <tr>
+                <th style={{ width: 36 }}>
+                  <input
+                    type="checkbox"
+                    aria-label="selecionar todos os canais visíveis"
+                    checked={
+                      filteredChannels.length > 0 &&
+                      filteredChannels.every((c) =>
+                        selectedChannelIds.has(c.id)
+                      )
+                    }
+                    ref={(el) => {
+                      if (!el) return;
+                      const visible = filteredChannels.length;
+                      const sel = filteredChannels.filter((c) =>
+                        selectedChannelIds.has(c.id)
+                      ).length;
+                      el.indeterminate = sel > 0 && sel < visible;
+                    }}
+                    onChange={(e) =>
+                      setChannelsSelectAll(
+                        filteredChannels.map((c) => c.id),
+                        e.target.checked
+                      )
+                    }
+                    disabled={filteredChannels.length === 0}
+                  />
+                </th>
                 <SortableHeader<ChannelSortKey>
                   label="Canal"
                   columnKey="title"
@@ -392,8 +755,17 @@ export function MonitoramentoView({
                 const snapState = rowState[`ch-snap:${c.id}`] ?? "idle";
                 const toggleState = rowState[`ch-toggle:${c.id}`] ?? "idle";
                 const delState = rowState[`ch-del:${c.id}`] ?? "idle";
+                const isSelected = selectedChannelIds.has(c.id);
                 return (
-                  <tr key={c.id}>
+                  <tr key={c.id} className={isSelected ? "row-selected" : ""}>
+                    <td>
+                      <input
+                        type="checkbox"
+                        aria-label={`selecionar canal ${c.title}`}
+                        checked={isSelected}
+                        onChange={() => toggleChannelSelected(c.id)}
+                      />
+                    </td>
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <ChannelAvatar url={c.thumbnail_url} title={c.title} size={36} />
@@ -446,7 +818,7 @@ export function MonitoramentoView({
               })}
               {filteredChannels.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="muted" style={{ textAlign: "center", padding: 16 }}>
+                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 16 }}>
                     {channels.length === 0 ? (
                       <>
                         nenhum canal monitorado. Cole um link/ID acima ou use a página{" "}
@@ -460,6 +832,149 @@ export function MonitoramentoView({
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Versão mobile: cards stackados (≤768px) */}
+        <div className="mobile-only">
+          {filteredChannels.length === 0 ? (
+            <div className="card">
+              <p className="muted" style={{ margin: 0 }}>
+                {channels.length === 0 ? (
+                  <>
+                    nenhum canal monitorado. Cole um link/ID acima ou use a página{" "}
+                    <a href="/descoberta">Descoberta</a>.
+                  </>
+                ) : (
+                  <>nenhum canal corresponde aos filtros aplicados.</>
+                )}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="mobile-list-toolbar">
+                {(() => {
+                  const allSelected =
+                    filteredChannels.length > 0 &&
+                    filteredChannels.every((c) =>
+                      selectedChannelIds.has(c.id)
+                    );
+                  return (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() =>
+                        setChannelsSelectAll(
+                          filteredChannels.map((c) => c.id),
+                          !allSelected
+                        )
+                      }
+                    >
+                      {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  );
+                })()}
+                <span className="spacer" />
+                <span>{filteredChannels.length} canal(is)</span>
+              </div>
+              <div className="mobile-card-list">
+                {filteredChannels.map((c) => {
+                  const snapState = rowState[`ch-snap:${c.id}`] ?? "idle";
+                  const toggleState = rowState[`ch-toggle:${c.id}`] ?? "idle";
+                  const delState = rowState[`ch-del:${c.id}`] ?? "idle";
+                  const isSelected = selectedChannelIds.has(c.id);
+                  return (
+                    <article
+                      key={c.id}
+                      className={
+                        isSelected ? "mobile-card row-selected" : "mobile-card"
+                      }
+                    >
+                      <div className="mobile-card-header">
+                        <label className="mobile-card-checkbox">
+                          <input
+                            type="checkbox"
+                            aria-label={`selecionar canal ${c.title}`}
+                            checked={isSelected}
+                            onChange={() => toggleChannelSelected(c.id)}
+                          />
+                        </label>
+                        <ChannelAvatar
+                          url={c.thumbnail_url}
+                          title={c.title}
+                          size={40}
+                        />
+                        <div className="mobile-card-title">
+                          <a
+                            href={c.url ?? "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {c.title}
+                          </a>
+                          <StatusPill status={c.status} />
+                        </div>
+                      </div>
+
+                      <div className="mobile-card-meta">
+                        <div>
+                          <span className="label">Inscritos</span>
+                          <span className="value">
+                            {formatInt(c.subscribers)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="label">Δ Inscritos</span>
+                          <span className="value">
+                            {formatDelta(c.delta_subscribers)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="label">VPD recente</span>
+                          <span className="value">
+                            {c.avg_vpd_recent != null
+                              ? formatInt(Math.round(c.avg_vpd_recent))
+                              : "—"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="label">Último sync</span>
+                          <span className="value">
+                            {formatDateShort(c.last_snapshot_at)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mobile-card-actions">
+                        <button
+                          className="btn-primary"
+                          disabled={snapState === "loading"}
+                          onClick={() => onSnapshotChannel(c)}
+                        >
+                          {snapState === "loading"
+                            ? "..."
+                            : "Atualizar agora"}
+                        </button>
+                        <button
+                          className="btn-ghost"
+                          disabled={toggleState === "loading"}
+                          onClick={() => onToggleChannelStatus(c)}
+                        >
+                          {c.status === "active" ? "Pausar" : "Retomar"}
+                        </button>
+                        <button
+                          className="btn-ghost danger"
+                          disabled={delState === "loading"}
+                          onClick={() => onDeleteChannel(c)}
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
         </>
       )}
@@ -503,8 +1018,87 @@ export function MonitoramentoView({
             onChange={setVideoFilters}
             totalCount={videos.length}
             filteredCount={filteredVideos.length}
-            showSortDropdown={videoLayout === "grid"}
+            showSortDropdown={videoLayout === "grid" || isMobile}
           />
+
+          {(() => {
+            const selectedVideos = filteredVideos.filter((v) =>
+              selectedVideoIds.has(v.id)
+            );
+            const allActive =
+              selectedVideos.length > 0 &&
+              selectedVideos.every((v) => v.status === "active");
+            const allPaused =
+              selectedVideos.length > 0 &&
+              selectedVideos.every((v) => v.status === "paused");
+            return (
+              selectedVideoIds.size > 0 && (
+                <div className="bulk-actions-bar">
+                  <div className="bulk-actions-info">
+                    <strong>{selectedVideoIds.size}</strong> vídeo(s)
+                    selecionado(s)
+                  </div>
+                  <div className="bulk-actions-buttons">
+                    <button
+                      className="btn-primary"
+                      disabled={bulkBusy}
+                      onClick={onBulkSnapshotVideos}
+                    >
+                      Atualizar agora
+                    </button>
+                    {allActive ? (
+                      <button
+                        className="btn-ghost"
+                        disabled={bulkBusy}
+                        onClick={() => onBulkSetVideoStatus("paused")}
+                      >
+                        Pausar
+                      </button>
+                    ) : allPaused ? (
+                      <button
+                        className="btn-ghost"
+                        disabled={bulkBusy}
+                        onClick={() => onBulkSetVideoStatus("active")}
+                      >
+                        Retomar
+                      </button>
+                    ) : (
+                      <>
+                        <button
+                          className="btn-ghost"
+                          disabled={bulkBusy}
+                          onClick={() => onBulkSetVideoStatus("paused")}
+                        >
+                          Pausar selecionados
+                        </button>
+                        <button
+                          className="btn-ghost"
+                          disabled={bulkBusy}
+                          onClick={() => onBulkSetVideoStatus("active")}
+                        >
+                          Retomar selecionados
+                        </button>
+                      </>
+                    )}
+                    <button
+                      className="btn-ghost danger"
+                      disabled={bulkBusy}
+                      onClick={onBulkDeleteVideos}
+                    >
+                      Remover
+                    </button>
+                    <button
+                      className="btn-ghost"
+                      disabled={bulkBusy}
+                      onClick={clearVideoSelection}
+                    >
+                      Limpar seleção
+                    </button>
+                  </div>
+                </div>
+              )
+            );
+          })()}
 
           {filteredVideos.length === 0 ? (
             <div className="card">
@@ -515,10 +1109,38 @@ export function MonitoramentoView({
               </p>
             </div>
           ) : videoLayout === "list" ? (
-            <div className="table-wrap">
+            <>
+            <div className="table-wrap desktop-only">
               <table className="table">
                 <thead>
                   <tr>
+                    <th style={{ width: 36 }}>
+                      <input
+                        type="checkbox"
+                        aria-label="selecionar todos os vídeos visíveis"
+                        checked={
+                          filteredVideos.length > 0 &&
+                          filteredVideos.every((v) =>
+                            selectedVideoIds.has(v.id)
+                          )
+                        }
+                        ref={(el) => {
+                          if (!el) return;
+                          const visible = filteredVideos.length;
+                          const sel = filteredVideos.filter((v) =>
+                            selectedVideoIds.has(v.id)
+                          ).length;
+                          el.indeterminate = sel > 0 && sel < visible;
+                        }}
+                        onChange={(e) =>
+                          setVideosSelectAll(
+                            filteredVideos.map((v) => v.id),
+                            e.target.checked
+                          )
+                        }
+                        disabled={filteredVideos.length === 0}
+                      />
+                    </th>
                     <SortableHeader<VideoSortKey>
                       label="Vídeo"
                       columnKey="title"
@@ -575,8 +1197,17 @@ export function MonitoramentoView({
                     const snapState = rowState[`vd-snap:${v.id}`] ?? "idle";
                     const toggleState = rowState[`vd-toggle:${v.id}`] ?? "idle";
                     const delState = rowState[`vd-del:${v.id}`] ?? "idle";
+                    const isSelected = selectedVideoIds.has(v.id);
                     return (
-                      <tr key={v.id}>
+                      <tr key={v.id} className={isSelected ? "row-selected" : ""}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            aria-label={`selecionar vídeo ${v.title}`}
+                            checked={isSelected}
+                            onChange={() => toggleVideoSelected(v.id)}
+                          />
+                        </td>
                         <td>
                           <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
                             <VideoThumbnail url={v.thumbnail_url} title={v.title} width={200} />
@@ -633,13 +1264,169 @@ export function MonitoramentoView({
                 </tbody>
               </table>
             </div>
+
+            {/* Versão mobile da aba Vídeos > list: cards stackados (≤768px) */}
+            <div className="mobile-only">
+              <div className="mobile-list-toolbar">
+                {(() => {
+                  const allSelected =
+                    filteredVideos.length > 0 &&
+                    filteredVideos.every((v) =>
+                      selectedVideoIds.has(v.id)
+                    );
+                  return (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() =>
+                        setVideosSelectAll(
+                          filteredVideos.map((v) => v.id),
+                          !allSelected
+                        )
+                      }
+                    >
+                      {allSelected ? "Desmarcar todos" : "Selecionar todos"}
+                    </button>
+                  );
+                })()}
+                <span className="spacer" />
+                <span>{filteredVideos.length} vídeo(s)</span>
+              </div>
+              <div className="mobile-card-list">
+                {filteredVideos.map((v) => {
+                  const snapState = rowState[`vd-snap:${v.id}`] ?? "idle";
+                  const toggleState = rowState[`vd-toggle:${v.id}`] ?? "idle";
+                  const delState = rowState[`vd-del:${v.id}`] ?? "idle";
+                  const isSelected = selectedVideoIds.has(v.id);
+                  return (
+                    <article
+                      key={v.id}
+                      className={
+                        isSelected
+                          ? "mobile-card row-selected"
+                          : "mobile-card"
+                      }
+                    >
+                      <div className="mobile-card-header">
+                        <label className="mobile-card-checkbox">
+                          <input
+                            type="checkbox"
+                            aria-label={`selecionar vídeo ${v.title}`}
+                            checked={isSelected}
+                            onChange={() => toggleVideoSelected(v.id)}
+                          />
+                        </label>
+                        <div className="mobile-card-title">
+                          <a
+                            href={v.url ?? "#"}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            {v.title}
+                          </a>
+                          <StatusPill status={v.status} />
+                        </div>
+                      </div>
+
+                      <a
+                        href={v.url ?? "#"}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mobile-card-thumb"
+                      >
+                        <VideoThumbnail
+                          url={v.thumbnail_url}
+                          title={v.title}
+                          width={400}
+                        />
+                      </a>
+
+                      <div className="mobile-card-meta">
+                        <div>
+                          <span className="label">Views</span>
+                          <span className="value">
+                            {formatInt(v.last_seen_views)}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="label">VPD atual</span>
+                          <span className="value">
+                            {v.last_seen_vpd != null
+                              ? formatInt(Math.round(v.last_seen_vpd))
+                              : "—"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="label">VPD inicial</span>
+                          <span className="value">
+                            {v.first_tracked_vpd != null
+                              ? formatInt(Math.round(v.first_tracked_vpd))
+                              : "—"}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="label">Último sync</span>
+                          <span className="value">
+                            {formatDateShort(v.last_seen_at)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="mobile-card-actions">
+                        <button
+                          className="btn-primary"
+                          disabled={snapState === "loading"}
+                          onClick={() => onSnapshotVideo(v)}
+                        >
+                          {snapState === "loading"
+                            ? "..."
+                            : "Atualizar agora"}
+                        </button>
+                        <button
+                          className="btn-ghost"
+                          disabled={toggleState === "loading"}
+                          onClick={() => onToggleVideoStatus(v)}
+                        >
+                          {v.status === "active" ? "Pausar" : "Retomar"}
+                        </button>
+                        <button
+                          className="btn-ghost danger"
+                          disabled={delState === "loading"}
+                          onClick={() => onDeleteVideo(v)}
+                        >
+                          Remover
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
+            </>
           ) : (
             <div className="video-grid">
               {filteredVideos.map((v) => {
                 const snapState = rowState[`vd-snap:${v.id}`] ?? "idle";
                 const toggleState = rowState[`vd-toggle:${v.id}`] ?? "idle";
+                const isSelected = selectedVideoIds.has(v.id);
                 return (
-                  <article key={v.id} className="video-card">
+                  <article
+                    key={v.id}
+                    className={
+                      isSelected ? "video-card video-card-selected" : "video-card"
+                    }
+                  >
+                    <label
+                      className="video-card-select"
+                      title={isSelected ? "desselecionar" : "selecionar"}
+                    >
+                      <input
+                        type="checkbox"
+                        aria-label={`selecionar vídeo ${v.title}`}
+                        checked={isSelected}
+                        onChange={() => toggleVideoSelected(v.id)}
+                      />
+                    </label>
                     <a
                       href={v.url ?? "#"}
                       target="_blank"

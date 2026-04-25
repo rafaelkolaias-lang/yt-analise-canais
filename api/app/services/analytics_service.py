@@ -242,3 +242,66 @@ def niches(db: Session) -> list[dict]:
 
     out.sort(key=lambda r: (r["avg_vpd"] or 0), reverse=True)
     return out
+
+
+# =============================================================================
+# Bundle paginado de canais para a aba /analytics
+# =============================================================================
+def channels_paginated(db: Session, page: int, page_size: int) -> dict:
+    """
+    Retorna uma página de canais com summary + 4 séries já agregadas no
+    backend, evitando o fan-out de 5 requests por canal no frontend.
+
+    Ordem dos canais: mesma do GET /api/monitoring/channels (created_at desc),
+    para coerência visual com a tela de monitoramento.
+    """
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 1
+    if page_size > 50:
+        page_size = 50
+
+    total = db.query(func.count(Channel.id)).scalar() or 0
+    total_pages = (total + page_size - 1) // page_size if total else 0
+
+    offset = (page - 1) * page_size
+    rows = (
+        db.query(Channel)
+        .order_by(desc(Channel.created_at))
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    items: list[dict] = []
+    for ch in rows:
+        try:
+            summary = channel_summary(db, ch.id)
+        except LookupError:
+            continue
+
+        items.append(
+            {
+                "channel": {
+                    "id": ch.id,
+                    "youtube_channel_id": ch.youtube_channel_id,
+                    "title": ch.title,
+                    "url": ch.url,
+                    "thumbnail_url": ch.thumbnail_url,
+                },
+                "summary": summary,
+                "subscribers_series": timeseries(db, ch.id, "subscribers"),
+                "views_series": timeseries(db, ch.id, "views_total"),
+                "vpd_series": timeseries(db, ch.id, "avg_vpd_recent"),
+                "uploads_series": timeseries(db, ch.id, "uploads_per_week"),
+            }
+        )
+
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": int(total),
+        "total_pages": int(total_pages),
+        "items": items,
+    }

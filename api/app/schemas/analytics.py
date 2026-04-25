@@ -45,3 +45,31 @@ class NicheRow(BaseModel):
     channels_count: int
     avg_subscribers: Optional[int] = None
     avg_vpd: Optional[float] = None
+
+
+# =============================================================================
+# Bundle paginado para a tela /analytics
+# =============================================================================
+class ChannelBasic(BaseModel):
+    id: int
+    youtube_channel_id: str
+    title: str
+    url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+
+
+class ChannelAnalyticsBundle(BaseModel):
+    channel: ChannelBasic
+    summary: ChannelAnalyticsSummary
+    subscribers_series: list[TimeseriesPoint]
+    views_series: list[TimeseriesPoint]
+    vpd_series: list[TimeseriesPoint]
+    uploads_series: list[TimeseriesPoint]
+
+
+class PaginatedChannelAnalytics(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    items: list[ChannelAnalyticsBundle]

@@ -106,3 +106,28 @@ class VideoSnapshotRead(BaseModel):
     delta_likes: Optional[int] = None
     delta_comments: Optional[int] = None
     captured_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Operações em lote (bulk)
+# ---------------------------------------------------------------------------
+class BulkIdsRequest(BaseModel):
+    ids: list[int]
+
+
+class BulkStatusRequest(BaseModel):
+    ids: list[int]
+    status: Literal["active", "paused", "removed"]
+
+
+class BulkOperationError(BaseModel):
+    id: int
+    message: str
+
+
+class BulkOperationResponse(BaseModel):
+    total: int
+    success_count: int
+    error_count: int
+    processed_ids: list[int]
+    errors: list[BulkOperationError]

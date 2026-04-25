@@ -1,7 +1,6 @@
 import {
   API_URL,
   type AnalyticsOverview,
-  type MonitoredChannel,
   type NicheRow,
 } from "@/lib/api";
 
@@ -20,9 +19,8 @@ async function fetchJSON<T>(path: string): Promise<T | null> {
 }
 
 export default async function AnalyticsPage() {
-  const [overview, channels, niches] = await Promise.all([
+  const [overview, niches] = await Promise.all([
     fetchJSON<AnalyticsOverview>("/api/analytics/overview"),
-    fetchJSON<MonitoredChannel[]>("/api/monitoring/channels"),
     fetchJSON<NicheRow[]>("/api/analytics/niches"),
   ]);
 
@@ -35,11 +33,7 @@ export default async function AnalyticsPage() {
           vêm dos snapshots coletados automaticamente pelo sync.
         </p>
       </header>
-      <AnalyticsView
-        overview={overview}
-        channels={channels ?? []}
-        niches={niches ?? []}
-      />
+      <AnalyticsView overview={overview} niches={niches ?? []} />
     </>
   );
 }

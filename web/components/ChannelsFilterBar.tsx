@@ -44,6 +44,19 @@ export const DEFAULT_CHANNEL_FILTERS: ChannelFilters = {
   sort: "subs_desc",
 };
 
+const SORT_LABELS: Record<ChannelSortKey, string> = {
+  title_asc: "Título (A→Z)",
+  title_desc: "Título (Z→A)",
+  subs_desc: "Inscritos (maior)",
+  subs_asc: "Inscritos (menor)",
+  delta_subs_desc: "Δ inscritos (maior)",
+  vpd_desc: "VPD (maior)",
+  vpd_asc: "VPD (menor)",
+  added_desc: "Adicionado (recente)",
+  added_asc: "Adicionado (antigo)",
+  last_sync_desc: "Último sync (recente)",
+};
+
 type Props = {
   filters: ChannelFilters;
   onChange: (next: ChannelFilters) => void;
@@ -51,6 +64,11 @@ type Props = {
   filteredCount: number;
   /** Lista de `source` distintos pra popular o dropdown. */
   availableSources: string[];
+  /**
+   * Quando true, mostra o select de ordenação inline na barra. Útil em
+   * mobile, onde a tabela vira cards e os SortableHeader não existem.
+   */
+  showSortDropdown?: boolean;
 };
 
 export function ChannelsFilterBar({
@@ -59,6 +77,7 @@ export function ChannelsFilterBar({
   totalCount,
   filteredCount,
   availableSources,
+  showSortDropdown = false,
 }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const set = (patch: Partial<ChannelFilters>) =>
@@ -88,6 +107,20 @@ export function ChannelsFilterBar({
         <option value="paused">Status: paused</option>
         <option value="removed">Status: removed</option>
       </select>
+
+      {showSortDropdown && (
+        <select
+          value={filters.sort}
+          onChange={(e) => set({ sort: e.target.value as ChannelSortKey })}
+          title="Ordenar"
+        >
+          {(Object.keys(SORT_LABELS) as ChannelSortKey[]).map((k) => (
+            <option key={k} value={k}>
+              {SORT_LABELS[k]}
+            </option>
+          ))}
+        </select>
+      )}
 
       <button
         type="button"

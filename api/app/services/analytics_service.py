@@ -23,6 +23,25 @@ from app.models import (
 )
 
 
+# Filtro de status reusado por /overview e /channels (paginação).
+# `all` = sem filtro. Outros valores casam exatamente com Channel.status.
+ALLOWED_STATUS_FILTERS = ("all", "active", "paused", "removed")
+
+
+def _filter_channel_ids_by_status(db: Session, status: Optional[str]) -> Optional[set[int]]:
+    """
+    Devolve o conjunto de Channel.id que casam com o status pedido. Retorna
+    None quando o filtro for 'all' (= não filtrar). Centralizado pra que
+    overview e listagem apliquem a mesma regra.
+    """
+    if not status or status == "all":
+        return None
+    if status not in ALLOWED_STATUS_FILTERS:
+        return set()
+    rows = db.query(Channel.id).filter(Channel.status == status).all()
+    return {row[0] for row in rows}
+
+
 # =============================================================================
 # Helpers internos
 # =============================================================================
@@ -43,25 +62,35 @@ def _latest_snapshot_ids_subquery(db: Session):
     return latest_at
 
 
-def _latest_snapshots(db: Session) -> list[ChannelSnapshot]:
+def _latest_snapshots(
+    db: Session, channel_ids: Optional[set[int]] = None
+) -> list[ChannelSnapshot]:
     latest_at = _latest_snapshot_ids_subquery(db)
-    return (
-        db.query(ChannelSnapshot)
-        .join(
-            latest_at,
-            (ChannelSnapshot.channel_id == latest_at.c.channel_id)
-            & (ChannelSnapshot.captured_at == latest_at.c.max_at),
-        )
-        .all()
+    query = db.query(ChannelSnapshot).join(
+        latest_at,
+        (ChannelSnapshot.channel_id == latest_at.c.channel_id)
+        & (ChannelSnapshot.captured_at == latest_at.c.max_at),
     )
+    if channel_ids is not None:
+        if not channel_ids:
+            return []
+        query = query.filter(ChannelSnapshot.channel_id.in_(channel_ids))
+    return query.all()
 
 
-def _count_videos_accelerating(db: Session) -> int:
+def _count_videos_accelerating(
+    db: Session, channel_ids: Optional[set[int]] = None
+) -> int:
     """
     Conta TrackedVideo cujo penúltimo vs último VideoSnapshot mostram VPD crescendo.
     Faz uma passada simples: pega os 2 últimos por vídeo.
     """
-    videos = db.query(TrackedVideo.id).filter(TrackedVideo.status == "active").all()
+    query = db.query(TrackedVideo.id).filter(TrackedVideo.status == "active")
+    if channel_ids is not None:
+        if not channel_ids:
+            return 0
+        query = query.filter(TrackedVideo.channel_id.in_(channel_ids))
+    videos = query.all()
     count = 0
     for (tv_id,) in videos:
         last_two = (
@@ -80,15 +109,20 @@ def _count_videos_accelerating(db: Session) -> int:
 # =============================================================================
 # Overview — contadores para Dashboard e topo da página /analytics
 # =============================================================================
-def overview(db: Session) -> dict:
-    latest = _latest_snapshots(db)
+def overview(db: Session, status: Optional[str] = None) -> dict:
+    """
+    Agregados de canais/vídeos para o topo da tela. `status` filtra pelo
+    Channel.status (`active`/`paused`/`removed`); `all` ou None = todos.
+    """
+    channel_ids = _filter_channel_ids_by_status(db, status)
+    latest = _latest_snapshots(db, channel_ids=channel_ids)
 
     counts = {"heating": 0, "promising": 0, "saturated": 0, "stable": 0, "unknown": 0}
     for snap in latest:
         key = snap.signal if snap.signal in counts else "unknown"
         counts[key] += 1
 
-    videos_accelerating = _count_videos_accelerating(db)
+    videos_accelerating = _count_videos_accelerating(db, channel_ids=channel_ids)
 
     return {
         "channels_total": len(latest),
@@ -247,13 +281,21 @@ def niches(db: Session) -> list[dict]:
 # =============================================================================
 # Bundle paginado de canais para a aba /analytics
 # =============================================================================
-def channels_paginated(db: Session, page: int, page_size: int) -> dict:
+def channels_paginated(
+    db: Session,
+    page: int,
+    page_size: int,
+    status: Optional[str] = None,
+) -> dict:
     """
     Retorna uma página de canais com summary + 4 séries já agregadas no
     backend, evitando o fan-out de 5 requests por canal no frontend.
 
     Ordem dos canais: mesma do GET /api/monitoring/channels (created_at desc),
     para coerência visual com a tela de monitoramento.
+
+    `status` filtra pelo Channel.status (`active`/`paused`/`removed`); `all`
+    ou None = todos. Default da UI é `active`.
     """
     if page < 1:
         page = 1
@@ -262,13 +304,24 @@ def channels_paginated(db: Session, page: int, page_size: int) -> dict:
     if page_size > 50:
         page_size = 50
 
-    total = db.query(func.count(Channel.id)).scalar() or 0
+    base = db.query(Channel)
+    if status and status != "all":
+        if status not in ALLOWED_STATUS_FILTERS:
+            return {
+                "page": page,
+                "page_size": page_size,
+                "total": 0,
+                "total_pages": 0,
+                "items": [],
+            }
+        base = base.filter(Channel.status == status)
+
+    total = base.with_entities(func.count(Channel.id)).scalar() or 0
     total_pages = (total + page_size - 1) // page_size if total else 0
 
     offset = (page - 1) * page_size
     rows = (
-        db.query(Channel)
-        .order_by(desc(Channel.created_at))
+        base.order_by(desc(Channel.created_at))
         .offset(offset)
         .limit(page_size)
         .all()

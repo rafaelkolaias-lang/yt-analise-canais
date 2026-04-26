@@ -19,9 +19,15 @@ from app.services import analytics_service
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
+_STATUS_PATTERN = "^(all|active|paused|removed)$"
+
+
 @router.get("/overview", response_model=AnalyticsOverview)
-def get_overview(db: Session = Depends(get_db)) -> AnalyticsOverview:
-    data = analytics_service.overview(db)
+def get_overview(
+    status: str = Query("active", pattern=_STATUS_PATTERN),
+    db: Session = Depends(get_db),
+) -> AnalyticsOverview:
+    data = analytics_service.overview(db, status=status)
     return AnalyticsOverview(**data)
 
 
@@ -29,9 +35,10 @@ def get_overview(db: Session = Depends(get_db)) -> AnalyticsOverview:
 def get_channels_paginated(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
+    status: str = Query("active", pattern=_STATUS_PATTERN),
     db: Session = Depends(get_db),
 ) -> PaginatedChannelAnalytics:
-    data = analytics_service.channels_paginated(db, page, page_size)
+    data = analytics_service.channels_paginated(db, page, page_size, status=status)
     return PaginatedChannelAnalytics(**data)
 
 

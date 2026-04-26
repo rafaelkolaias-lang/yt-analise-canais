@@ -15,12 +15,20 @@ import {
 } from "@/lib/api";
 
 type Props = {
-  overview: AnalyticsOverview | null;
   niches: NicheRow[];
 };
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_PAGE_SIZE = 10;
+
+type StatusFilter = "active" | "paused" | "removed" | "all";
+
+const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  { value: "active", label: "Ativos" },
+  { value: "paused", label: "Pausados" },
+  { value: "removed", label: "Removidos" },
+  { value: "all", label: "Todos" },
+];
 
 function signalLabel(signal: string | null): string {
   switch (signal) {
@@ -48,10 +56,12 @@ function fmtPct(v: number | null | undefined): string {
   return `${sign}${v.toFixed(1)}%`;
 }
 
-export function AnalyticsView({ overview, niches }: Props) {
+export function AnalyticsView({ niches }: Props) {
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [data, setData] = useState<PaginatedChannelAnalytics | null>(null);
+  const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
@@ -62,10 +72,18 @@ export function AnalyticsView({ overview, niches }: Props) {
       setLoading(true);
       setError(null);
       try {
-        const resp = await apiGet<PaginatedChannelAnalytics>(
-          `/api/analytics/channels?page=${page}&page_size=${pageSize}`
-        );
-        if (!cancelled) setData(resp);
+        const [overviewResp, channelsResp] = await Promise.all([
+          apiGet<AnalyticsOverview>(
+            `/api/analytics/overview?status=${statusFilter}`
+          ),
+          apiGet<PaginatedChannelAnalytics>(
+            `/api/analytics/channels?page=${page}&page_size=${pageSize}&status=${statusFilter}`
+          ),
+        ]);
+        if (!cancelled) {
+          setOverview(overviewResp);
+          setData(channelsResp);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -76,7 +94,7 @@ export function AnalyticsView({ overview, niches }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [page, pageSize, reloadTick]);
+  }, [page, pageSize, statusFilter, reloadTick]);
 
   const totalPages = data?.total_pages ?? 0;
   const total = data?.total ?? 0;
@@ -94,6 +112,46 @@ export function AnalyticsView({ overview, niches }: Props) {
 
   return (
     <>
+      {/* Barra de filtro de status */}
+      <section
+        className="card"
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Status do canal</div>
+        <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {STATUS_OPTIONS.map((opt) => {
+            const active = opt.value === statusFilter;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  if (opt.value !== statusFilter) {
+                    setPage(1);
+                    setStatusFilter(opt.value);
+                  }
+                }}
+                className={active ? "btn-primary" : "btn-ghost"}
+                style={{ fontSize: 12, padding: "6px 12px" }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+          mostrando {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label.toLowerCase()}
+        </span>
+      </section>
+
       {/* Cards de overview */}
       <section className="analytics-overview-grid">
         <div className="card">
@@ -148,9 +206,15 @@ export function AnalyticsView({ overview, niches }: Props) {
       {!error && total === 0 && !loading ? (
         <div className="card">
           <p className="muted" style={{ margin: 0 }}>
-            Nenhum canal monitorado ainda. Adicione canais em{" "}
-            <a href="/monitoramento">Monitoramento</a> ou{" "}
-            <a href="/descoberta">Descoberta</a>.
+            {statusFilter === "active" ? (
+              <>
+                Nenhum canal ativo. Adicione canais em{" "}
+                <a href="/monitoramento">Monitoramento</a> ou{" "}
+                <a href="/descoberta">Descoberta</a>, ou troque o filtro acima.
+              </>
+            ) : (
+              <>Nenhum canal corresponde ao filtro selecionado.</>
+            )}
           </p>
         </div>
       ) : loading ? (

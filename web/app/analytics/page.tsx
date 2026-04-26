@@ -1,6 +1,5 @@
 import {
   API_URL,
-  type AnalyticsOverview,
   type NicheRow,
 } from "@/lib/api";
 
@@ -19,10 +18,8 @@ async function fetchJSON<T>(path: string): Promise<T | null> {
 }
 
 export default async function AnalyticsPage() {
-  const [overview, niches] = await Promise.all([
-    fetchJSON<AnalyticsOverview>("/api/analytics/overview"),
-    fetchJSON<NicheRow[]>("/api/analytics/niches"),
-  ]);
+  // O overview agora é buscado no client porque depende do filtro de status.
+  const niches = await fetchJSON<NicheRow[]>("/api/analytics/niches");
 
   return (
     <>
@@ -33,7 +30,7 @@ export default async function AnalyticsPage() {
           vêm dos snapshots coletados automaticamente pelo sync.
         </p>
       </header>
-      <AnalyticsView overview={overview} niches={niches ?? []} />
+      <AnalyticsView niches={niches ?? []} />
     </>
   );
 }

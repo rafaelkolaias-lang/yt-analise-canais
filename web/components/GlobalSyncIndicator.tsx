@@ -2,14 +2,38 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { apiGet, type SyncStatus } from "@/lib/api";
+import { apiGet, type SyncRun, type SyncStatus } from "@/lib/api";
+import { useBrowserNotifications } from "@/lib/useBrowserNotifications";
 
 const POLL_INTERVAL_MS = 5000;
+
+function notificationBodyFor(run: SyncRun): string {
+  const parts: string[] = [];
+  if (run.channels_processed > 0) parts.push(`${run.channels_processed} canais`);
+  if (run.videos_processed > 0) parts.push(`${run.videos_processed} vídeos`);
+  if (parts.length === 0) return run.notes ?? "Sem itens processados.";
+  return parts.join(" · ");
+}
+
+function notificationTitleFor(run: SyncRun): string {
+  switch (run.status) {
+    case "success":
+      return "Sync concluído ✓";
+    case "partial":
+      return "Sync concluído com falhas parciais";
+    case "failed":
+      return "Sync falhou";
+    default:
+      return "Sync atualizado";
+  }
+}
 
 export function GlobalSyncIndicator() {
   const [running, setRunning] = useState(false);
   const [channels, setChannels] = useState<number>(0);
   const lastRunIdRef = useRef<number | null>(null);
+  const lastRunStatusRef = useRef<SyncRun["status"] | null>(null);
+  const { send: sendNotification } = useBrowserNotifications();
 
   useEffect(() => {
     let cancelled = false;
@@ -22,8 +46,23 @@ export function GlobalSyncIndicator() {
         const isRunning = last?.status === "running";
         setRunning(isRunning);
         setChannels(last?.channels_processed ?? 0);
-        if (last && last.id !== lastRunIdRef.current) {
+
+        if (last) {
+          const prevStatus = lastRunStatusRef.current;
+          const prevId = lastRunIdRef.current;
+          // Detecta transição "running" -> qualquer estado terminal, ou run
+          // novo (id mudou) já vindo terminado.
+          const transitionedToDone =
+            (prevStatus === "running" && last.status !== "running") ||
+            (prevId !== null && prevId !== last.id && last.status !== "running");
+          if (transitionedToDone) {
+            sendNotification(notificationTitleFor(last), {
+              body: notificationBodyFor(last),
+              tag: `sync-${last.id}`,
+            });
+          }
           lastRunIdRef.current = last.id;
+          lastRunStatusRef.current = last.status;
         }
       } catch {
         if (!cancelled) setRunning(false);
@@ -36,7 +75,7 @@ export function GlobalSyncIndicator() {
       cancelled = true;
       window.clearInterval(handle);
     };
-  }, []);
+  }, [sendNotification]);
 
   if (!running) return null;
 

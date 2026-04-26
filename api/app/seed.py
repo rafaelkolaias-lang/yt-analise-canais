@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from app.core.database import SessionLocal
 from app.models import AppSetting
+from app.services.discovery_seed_terms import all_seed_terms
 
 DEFAULT_SETTINGS: list[dict] = [
     # -------------------------------------------------------------
@@ -123,6 +124,39 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "10000",
         "value_type": "int",
         "description": "Cota diária por API key do YouTube.",
+    },
+    # -------------------------------------------------------------
+    # Discovery automática (rodada após cada sync)
+    # -------------------------------------------------------------
+    {
+        "key": "discovery.auto_enabled",
+        "value": "true",
+        "value_type": "bool",
+        "description": "Liga/desliga a descoberta automática pós-sync.",
+    },
+    {
+        "key": "discovery.auto_quota_pct",
+        "value": "0.5",
+        "value_type": "float",
+        "description": "Fração máxima da cota diária total (todas as keys) que a descoberta automática pode consumir num ciclo.",
+    },
+    {
+        "key": "discovery.auto_keywords",
+        "value": "\n".join(all_seed_terms()),
+        "value_type": "str",
+        "description": "Termos seed da descoberta automática (uma linha por termo). Editável pelo usuário; o sistema também gera termos derivados a partir dos canais já descobertos.",
+    },
+    {
+        "key": "discovery.auto_max_terms_per_run",
+        "value": "30",
+        "value_type": "int",
+        "description": "Quantos termos no máximo cada execução automática deve buscar (mistura seed + derivados).",
+    },
+    {
+        "key": "discovery.auto_derived_term_min_freq",
+        "value": "3",
+        "value_type": "int",
+        "description": "Frequência mínima de uma palavra em títulos de canais já descobertos para virar termo derivado de busca.",
     },
 ]
 

@@ -40,6 +40,7 @@ class ResultVideoRead(BaseModel):
     vpd: Optional[float] = None
     matched_term: Optional[str] = None
     captured_at: datetime
+    reviewed_at: Optional[datetime] = None
 
 
 class ResultChannelRead(BaseModel):
@@ -53,6 +54,7 @@ class ResultChannelRead(BaseModel):
     views_total: Optional[int] = None
     video_count: Optional[int] = None
     captured_at: datetime
+    reviewed_at: Optional[datetime] = None
 
 
 class DiscoveryRunSummary(BaseModel):
@@ -68,7 +70,34 @@ class DiscoveryRunSummary(BaseModel):
     notes: Optional[str] = None
 
 
+class ReviewProgress(BaseModel):
+    """Quantos itens já foram triados pelo usuário num run."""
+    channels_total: int
+    channels_reviewed: int
+    videos_total: int
+    videos_reviewed: int
+
+
+class DiscoveryRunWithProgress(DiscoveryRunSummary):
+    progress: ReviewProgress
+
+
 class DiscoveryRunRead(DiscoveryRunSummary):
     filters_json: Optional[str] = None
     channel_results: list[ResultChannelRead] = []
     video_results: list[ResultVideoRead] = []
+    progress: ReviewProgress
+
+
+class ReviewItemRequest(BaseModel):
+    """Marca um item como revisado/não-revisado."""
+    reviewed: bool = True
+
+
+class BlacklistEntryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    youtube_channel_id: str
+    reason: Optional[str] = None
+    blacklisted_at: datetime

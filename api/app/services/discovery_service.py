@@ -19,11 +19,18 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models import (
+    ChannelBlacklist,
     DiscoveryResultChannel,
     DiscoveryResultVideo,
     DiscoveryRun,
 )
 from app.services import settings_reader, youtube_client
+
+
+def get_blacklisted_channel_ids(db: Session) -> set[str]:
+    """IDs de canal na blacklist — usado para descartar resultados."""
+    rows = db.query(ChannelBlacklist.youtube_channel_id).all()
+    return {r[0] for r in rows}
 
 
 @dataclass
@@ -146,7 +153,8 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
         # 2) hidrata vídeos (stats + duração)
         videos = client.videos_by_ids(video_ids) if video_ids else []
 
-        # 3) filtra e coleta channel IDs únicos
+        # 3) filtra e coleta channel IDs únicos (excluindo blacklist)
+        blacklist = get_blacklisted_channel_ids(db)
         filtered_videos: list[tuple[dict, str]] = []  # (video_item, matched_term)
         channel_ids_seen: set[str] = set()
         for v in videos:
@@ -168,12 +176,14 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
                 continue
 
             ch_id = snippet.get("channelId")
+            if ch_id and ch_id in blacklist:
+                continue
             if ch_id:
                 channel_ids_seen.add(ch_id)
 
             filtered_videos.append((v, video_term_map.get(vid, "")))
 
-        # 4) hidrata canais únicos
+        # 4) hidrata canais únicos (blacklist já foi filtrada acima)
         channels = client.channels_by_ids(list(channel_ids_seen)) if channel_ids_seen else []
         channels_by_id = {c.get("id"): c for c in channels}
 

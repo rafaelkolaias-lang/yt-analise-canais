@@ -82,6 +82,16 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         run.finished_at = datetime.utcnow()
         db.commit()
         db.refresh(run)
+
+        # Etapa pós-sync: descoberta automática. Roda em try/except próprio
+        # para que uma falha aqui NUNCA contamine o status do sync (que ja
+        # esta finalizado e commitado acima). Import tardio evita ciclo.
+        try:
+            from app.services import auto_discovery_service
+            auto_discovery_service.run_auto_discovery(db)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("auto-discovery pos-sync falhou: %s", exc)
+
         return run
 
     except Exception as exc:

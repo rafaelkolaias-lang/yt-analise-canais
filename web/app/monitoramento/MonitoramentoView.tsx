@@ -37,6 +37,16 @@ import { useIsMobile } from "@/lib/useIsMobile";
 type Tab = "channels" | "videos" | "best";
 type VideoLayout = "list" | "grid";
 
+type BulkProgress = {
+  label: string;
+  total: number;
+  done: number;
+  success: number;
+  failed: number;
+};
+
+const BULK_CONCURRENCY = 4;
+
 const VIDEO_LAYOUT_STORAGE_KEY = "monitoramento.videoLayout";
 
 type RowState = Record<string, "idle" | "loading" | "done" | "error">;
@@ -102,6 +112,7 @@ export function MonitoramentoView({
     () => new Set()
   );
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const isMobile = useIsMobile();
   const toast = useToast();
 
@@ -401,15 +412,81 @@ export function MonitoramentoView({
     }
   }
 
+  // Snapshot em massa é o caso lento (≥3 units/canal, latência YouTube). Em
+  // vez de bloquear no endpoint bulk, dispara N requests unitarios com
+  // concorrencia limitada e atualiza progresso item-a-item.
+  async function runItemizedSnapshot(opts: {
+    label: string;
+    ids: number[];
+    snapshotPath: (id: number) => string;
+    onSuccess: (id: number) => void;
+    onRefresh: () => Promise<void>;
+  }) {
+    const { label, ids, snapshotPath, onSuccess, onRefresh } = opts;
+    const total = ids.length;
+    if (total === 0) return;
+
+    setBulkBusy(true);
+    setBulkProgress({ label, total, done: 0, success: 0, failed: 0 });
+
+    const errors: Array<{ id: number; message: string }> = [];
+
+    // Pool com concorrencia BULK_CONCURRENCY: workers consomem da fila.
+    const queue = [...ids];
+    async function worker() {
+      while (queue.length > 0) {
+        const id = queue.shift();
+        if (id === undefined) return;
+        try {
+          await apiPost(snapshotPath(id), {});
+          onSuccess(id);
+          setBulkProgress((p) =>
+            p ? { ...p, done: p.done + 1, success: p.success + 1 } : p
+          );
+        } catch (e) {
+          errors.push({ id, message: e instanceof Error ? e.message : String(e) });
+          setBulkProgress((p) =>
+            p ? { ...p, done: p.done + 1, failed: p.failed + 1 } : p
+          );
+        }
+      }
+    }
+
+    const workers = Array.from(
+      { length: Math.min(BULK_CONCURRENCY, total) },
+      () => worker()
+    );
+    await Promise.all(workers);
+
+    summarizeBulk(label, {
+      total,
+      success_count: total - errors.length,
+      error_count: errors.length,
+      processed_ids: [],
+      errors,
+    });
+
+    await onRefresh();
+    setBulkBusy(false);
+    // Mantém a barra na tela por 2s pra usuario ler o resultado final.
+    setTimeout(() => setBulkProgress(null), 2000);
+  }
+
   function onBulkSnapshotChannels() {
     const ids = Array.from(selectedChannelIds);
     if (ids.length === 0) return;
-    runBulkChannels(
-      "Atualizar canais",
-      "POST",
-      "/api/monitoring/channels/bulk-snapshot",
-      { ids }
-    );
+    runItemizedSnapshot({
+      label: "Atualizar canais",
+      ids,
+      snapshotPath: (id) => `/api/monitoring/channels/${id}/snapshot`,
+      onSuccess: (id) =>
+        setSelectedChannelIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        }),
+      onRefresh: refreshChannels,
+    });
   }
 
   function onBulkSetChannelStatus(targetStatus: "active" | "paused") {
@@ -475,12 +552,18 @@ export function MonitoramentoView({
   function onBulkSnapshotVideos() {
     const ids = Array.from(selectedVideoIds);
     if (ids.length === 0) return;
-    runBulkVideos(
-      "Atualizar vídeos",
-      "POST",
-      "/api/monitoring/videos/bulk-snapshot",
-      { ids }
-    );
+    runItemizedSnapshot({
+      label: "Atualizar vídeos",
+      ids,
+      snapshotPath: (id) => `/api/monitoring/videos/${id}/snapshot`,
+      onSuccess: (id) =>
+        setSelectedVideoIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        }),
+      onRefresh: refreshVideos,
+    });
   }
 
   function onBulkSetVideoStatus(targetStatus: "active" | "paused") {
@@ -561,6 +644,8 @@ export function MonitoramentoView({
           Melhores vídeos
         </button>
       </div>
+
+      {bulkProgress && <BulkProgressBar progress={bulkProgress} />}
 
       {tab === "channels" && (
         <>
@@ -1574,6 +1659,45 @@ export function MonitoramentoView({
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+function BulkProgressBar({ progress }: { progress: BulkProgress }) {
+  const { label, total, done, success, failed } = progress;
+  const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+  const finished = done >= total;
+  const stateClass = !finished
+    ? "bulk-progress-running"
+    : failed === 0
+    ? "bulk-progress-ok"
+    : success === 0
+    ? "bulk-progress-fail"
+    : "bulk-progress-partial";
+  return (
+    <div className={`bulk-progress ${stateClass}`} role="status" aria-live="polite">
+      <div className="bulk-progress-row">
+        <strong>{label}</strong>
+        <span className="muted" style={{ fontSize: 12 }}>
+          {done}/{total} processados ({pct}%)
+          {failed > 0 && (
+            <>
+              {" · "}
+              <span className="bulk-progress-fail-count">
+                {failed} falha{failed > 1 ? "s" : ""}
+              </span>
+            </>
+          )}
+          {finished && " · concluído"}
+        </span>
+      </div>
+      <div className="bulk-progress-track">
+        <div
+          className="bulk-progress-fill"
+          style={{ width: `${pct}%` }}
+          aria-hidden="true"
+        />
+      </div>
     </div>
   );
 }

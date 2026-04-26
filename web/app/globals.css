@@ -1028,6 +1028,80 @@ tr.row-selected > td {
 }
 
 /* ================================================================== */
+/* Bulk progress bar (Monitoramento — snapshot em massa)               */
+/* ================================================================== */
+.bulk-progress {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fade-in 0.18s ease-out;
+}
+
+.bulk-progress-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.bulk-progress-track {
+  width: 100%;
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.bulk-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.18s ease-out;
+}
+
+.bulk-progress-running .bulk-progress-fill {
+  background: var(--accent);
+}
+.bulk-progress-ok {
+  border-color: var(--success);
+}
+.bulk-progress-ok .bulk-progress-fill {
+  background: var(--success);
+}
+.bulk-progress-partial {
+  border-color: var(--warn);
+}
+.bulk-progress-partial .bulk-progress-fill {
+  background: var(--warn);
+}
+.bulk-progress-fail {
+  border-color: var(--danger);
+}
+.bulk-progress-fail .bulk-progress-fill {
+  background: var(--danger);
+}
+
+.bulk-progress-fail-count {
+  color: var(--danger);
+  font-weight: 600;
+}
+
+/* Notifications settings — cores dos labels de status de permissao */
+.notif-perm-success {
+  color: var(--success) !important;
+}
+.notif-perm-warn {
+  color: var(--warn) !important;
+}
+.notif-perm-danger {
+  color: var(--danger) !important;
+}
+
+/* ================================================================== */
 /* Plano B — cards stackados em mobile (Monitoramento)                 */
 /* ================================================================== */
 

@@ -17,7 +17,13 @@ from typing import Literal, Optional
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app.models import Channel, ChannelSnapshot, TrackedVideo, VideoSnapshot
+from app.models import (
+    Channel,
+    ChannelBlacklist,
+    ChannelSnapshot,
+    TrackedVideo,
+    VideoSnapshot,
+)
 from app.services import settings_reader, youtube_client
 from app.services.discovery_service import (
     compute_vpd,
@@ -147,11 +153,32 @@ def set_video_status(db: Session, video_id: int, status: str) -> TrackedVideo:
 
 
 def delete_channel(db: Session, channel_id: int) -> None:
-    """Remoção dura — cascata apaga snapshots, tracked_videos e channel_tags."""
+    """
+    Remoção dura — cascata apaga snapshots, tracked_videos e channel_tags.
+
+    Adicionalmente registra o canal na blacklist (idempotente) para que a
+    descoberta automática não o reaceite. Se o usuário quiser voltar a
+    monitorar, deve remover da blacklist explicitamente (UI futura ou
+    direto na tabela).
+    """
     channel = db.query(Channel).filter_by(id=channel_id).one_or_none()
     if channel is None:
         raise LookupError(f"canal id={channel_id} não existe")
+
+    yt_id = channel.youtube_channel_id
     db.delete(channel)
+
+    existing = (
+        db.query(ChannelBlacklist).filter_by(youtube_channel_id=yt_id).one_or_none()
+    )
+    if existing is None:
+        db.add(
+            ChannelBlacklist(
+                youtube_channel_id=yt_id,
+                reason="user_removed",
+            )
+        )
+
     db.commit()
 
 

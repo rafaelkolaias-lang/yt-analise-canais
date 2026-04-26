@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { NotificationsSettings } from "@/components/NotificationsSettings";
 import { SecretInput } from "@/components/SecretInput";
 import { SettingInput } from "@/components/SettingInput";
 import { useToast } from "@/components/Toaster";
@@ -45,6 +46,13 @@ const SECTIONS: Section[] = [
     description:
       "Thresholds usados para classificar o sinal dos canais (aquecendo, promissor, saturado, estável).",
     match: (k) => k.startsWith("analytics."),
+  },
+  {
+    id: "discovery",
+    title: "Descoberta automática",
+    description:
+      "Descoberta que roda após cada sync para encontrar novos canais sem busca manual. Os termos são editáveis (um por linha) e o sistema também gera termos derivados a partir dos canais já descobertos.",
+    match: (k) => k.startsWith("discovery."),
   },
   {
     id: "youtube",
@@ -100,6 +108,7 @@ export function ConfiguracoesForm({ initial }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <NotificationsSettings />
       {grouped.map(({ section, items }) =>
         items.length === 0 ? null : (
           <section key={section.id} className="card">
@@ -145,6 +154,7 @@ export function ConfiguracoesForm({ initial }: Props) {
                       <SettingInput
                         initialValue={item.value}
                         valueType={item.value_type}
+                        multiline={item.key === "discovery.auto_keywords"}
                         onSave={(v) => save(item.key, v)}
                       />
                     )}

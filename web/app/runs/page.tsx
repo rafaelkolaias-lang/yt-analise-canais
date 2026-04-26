@@ -1,6 +1,6 @@
 import {
   apiGet,
-  type DiscoveryRunSummary,
+  type DiscoveryRunWithProgress,
   type SyncRun,
 } from "@/lib/api";
 
@@ -9,13 +9,13 @@ import { RunsView } from "./RunsView";
 export const dynamic = "force-dynamic";
 
 async function loadAll(): Promise<
-  | { ok: true; syncRuns: SyncRun[]; discoveryRuns: DiscoveryRunSummary[] }
+  | { ok: true; syncRuns: SyncRun[]; discoveryRuns: DiscoveryRunWithProgress[] }
   | { ok: false; error: string }
 > {
   try {
     const [syncRuns, discoveryRuns] = await Promise.all([
       apiGet<SyncRun[]>("/api/sync/runs"),
-      apiGet<DiscoveryRunSummary[]>("/api/discovery/runs"),
+      apiGet<DiscoveryRunWithProgress[]>("/api/discovery/runs"),
     ]);
     return { ok: true, syncRuns, discoveryRuns };
   } catch (e) {

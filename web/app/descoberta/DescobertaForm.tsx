@@ -118,6 +118,20 @@ export function DescobertaForm({ defaults }: Props) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <div className="card" style={{ background: "rgba(79, 140, 255, 0.05)" }}>
+        <div style={{ fontSize: 13 }}>
+          <strong>Descoberta automática ativa.</strong>{" "}
+          <span className="muted">
+            Após cada sync, o sistema busca novos canais usando uma lista de
+            termos seed e termos derivados dos canais já descobertos. Veja o
+            histórico em{" "}
+            <a href="/runs">Runs → Descoberta</a> e ajuste os termos em{" "}
+            <a href="/configuracoes">Configurações → Descoberta automática</a>.
+            Canais que você remover entram numa blacklist e não voltam.
+          </span>
+        </div>
+      </div>
+
       <form onSubmit={onSearch} className="card">
         <header style={{ marginBottom: 12 }}>
           <h3 style={{ margin: 0, fontSize: 15 }}>Filtros</h3>

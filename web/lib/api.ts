@@ -104,6 +104,7 @@ export type ResultChannel = {
   views_total: number | null;
   video_count: number | null;
   captured_at: string;
+  reviewed_at: string | null;
 };
 
 export type ResultVideo = {
@@ -119,6 +120,14 @@ export type ResultVideo = {
   vpd: number | null;
   matched_term: string | null;
   captured_at: string;
+  reviewed_at: string | null;
+};
+
+export type ReviewProgress = {
+  channels_total: number;
+  channels_reviewed: number;
+  videos_total: number;
+  videos_reviewed: number;
 };
 
 export type DiscoveryRun = {
@@ -133,6 +142,14 @@ export type DiscoveryRun = {
   filters_json: string | null;
   channel_results: ResultChannel[];
   video_results: ResultVideo[];
+  progress: ReviewProgress;
+};
+
+export type BlacklistEntry = {
+  id: number;
+  youtube_channel_id: string;
+  reason: string | null;
+  blacklisted_at: string;
 };
 
 // =============================================================================
@@ -252,6 +269,11 @@ export type DiscoveryRunSummary = {
   channels_found: number;
   videos_found: number;
   notes: string | null;
+};
+
+// Versão estendida com progresso de revisão (vinda de GET /api/discovery/runs)
+export type DiscoveryRunWithProgress = DiscoveryRunSummary & {
+  progress: ReviewProgress;
 };
 
 // =============================================================================

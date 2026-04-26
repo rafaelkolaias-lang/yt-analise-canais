@@ -57,9 +57,11 @@ yt-analise-canais-web/
 │   │   │   ├── settings_service.py   # público: sempre mascara secrets
 │   │   │   ├── settings_reader.py    # interno: get_int/get_float/get_str/get_csv com cast
 │   │   │   ├── youtube_client.py     # httpx + rotação de keys + quota tracking
-│   │   │   ├── discovery_service.py  # search → hydrate → filter → persist
-│   │   │   ├── monitoring_service.py # add/snapshot/toggle/delete + best videos + signal/analytics enrichment
-│   │   │   ├── sync_service.py       # run_sync: itera ativos, tolera falha individual
+│   │   │   ├── discovery_service.py  # search → hydrate → filter → persist; filtra blacklist
+│   │   │   ├── discovery_seed_terms.py # ~95 termos seed (pt+en) pra auto-discovery
+│   │   │   ├── auto_discovery_service.py # roda após sync; orçamento + termos derivados
+│   │   │   ├── monitoring_service.py # add/snapshot/toggle/delete (+ blacklist no delete) + best videos + signal/analytics enrichment
+│   │   │   ├── sync_service.py       # run_sync: itera ativos, tolera falha individual; engata auto_discovery no fim
 │   │   │   └── analytics_service.py  # overview, timeseries, summary, niches (só lê banco)
 │   │   ├── schemas/
 │   │   │   ├── settings.py           # AppSettingRead / AppSettingUpdate
@@ -69,7 +71,7 @@ yt-analise-canais-web/
 │   │   │   └── analytics.py          # AnalyticsOverview, TimeseriesPoint, ChannelAnalyticsSummary, NicheRow, ChannelBasic, ChannelAnalyticsBundle, PaginatedChannelAnalytics
 │   │   └── models/
 │   │       ├── __init__.py           # re-exporta todas as entidades
-│   │       └── domain.py             # 11 entidades SQLAlchemy (ver "Modelo de dados")
+│   │       └── domain.py             # 12 entidades SQLAlchemy (ver "Modelo de dados")
 │   ├── migrations/
 │   │   ├── env.py                    # injeta DATABASE_URL do .env
 │   │   └── versions/
@@ -117,10 +119,12 @@ yt-analise-canais-web/
 │   │   ├── Toaster.tsx                # Context + hook useToast (success/error/info)
 │   │   ├── GlobalSyncIndicator.tsx    # badge no topo que polla /api/sync/status a cada 5s
 │   │   ├── Skeleton.tsx               # bloco animado (shimmer) para estados de loading
-│   │   └── ErrorCard.tsx              # cartão de erro padronizado com botão "Tentar de novo"
+│   │   ├── ErrorCard.tsx              # cartão de erro padronizado com botão "Tentar de novo"
+│   │   └── NotificationsSettings.tsx  # toggle de notificações do navegador (configurações)
 │   ├── lib/
 │   │   ├── api.ts                    # apiGet/Post/Patch/Delete + todos os tipos
-│   │   └── useIsMobile.ts            # hook matchMedia ≤768px (SSR-safe)
+│   │   ├── useIsMobile.ts            # hook matchMedia ≤768px (SSR-safe)
+│   │   └── useBrowserNotifications.ts # hook Notification API + preferência local
 │   ├── package.json
 │   ├── tsconfig.json
 │   ├── next.config.ts                # output: "standalone" (pro Dockerfile)
@@ -170,6 +174,9 @@ yt-analise-canais-web/
 | **Frontend** | |
 | Cliente HTTP + tipos | [web/lib/api.ts](web/lib/api.ts) |
 | Hook `useIsMobile` (matchMedia) | [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) |
+| Hook `useBrowserNotifications` (Notification API + permission) | [web/lib/useBrowserNotifications.ts](web/lib/useBrowserNotifications.ts) |
+| Descoberta automática (orçamento + termos) | [api/app/services/auto_discovery_service.py](api/app/services/auto_discovery_service.py), [api/app/services/discovery_seed_terms.py](api/app/services/discovery_seed_terms.py) |
+| Blacklist de canais (delete + filtro) | [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py) (`delete_channel`), [api/app/services/discovery_service.py](api/app/services/discovery_service.py) (`get_blacklisted_channel_ids`) |
 | Layout/navegação | [web/app/layout.tsx](web/app/layout.tsx), [web/components/Sidebar.tsx](web/components/Sidebar.tsx) |
 | Estilo global | [web/app/globals.css](web/app/globals.css) |
 | Dashboard | [web/app/page.tsx](web/app/page.tsx), [web/app/DashboardSyncPanel.tsx](web/app/DashboardSyncPanel.tsx) |
@@ -202,6 +209,9 @@ yt-analise-canais-web/
 | `tags` | Tags/nichos (name unique) — **usado na Fase 6** |
 | `channel_tags` | N:N canal↔tag |
 | `app_settings` | Config global chave/valor tipada; `is_secret=True` → `value` cifrado com Fernet |
+| `channel_blacklist` | Canais que o usuário removeu (`youtube_channel_id` UNIQUE). Discovery filtra antes de hidratar — nunca reaceita |
+
+> Total: **12 tabelas** (+ `alembic_version`). `discovery_results_channels` e `discovery_results_videos` ganharam `reviewed_at TIMESTAMP NULL` (Plano de descoberta contínua, 2026-04-25).
 
 **Convenções:**
 - Contagens (inscritos, views) em `BIGINT` — canais grandes ultrapassam 2B.
@@ -221,6 +231,11 @@ Carregadas via `python -m app.seed` (idempotente):
 - **analytics.promising_vpd_ratio**: `0.3` (multiplicador de `vpd_saturation` — VPD mínimo pra canal pequeno ser "promissor")
 - **youtube.api_keys**: secret (vazio, preenchido pela UI /configuracoes)
 - **youtube.api_key_daily_quota**: `10000`
+- **discovery.auto_enabled**: `true` (liga descoberta pós-sync)
+- **discovery.auto_quota_pct**: `0.5` (fração da quota total disponível por ciclo)
+- **discovery.auto_keywords**: ~95 termos seed pt+en (multiline, editável na UI)
+- **discovery.auto_max_terms_per_run**: `30`
+- **discovery.auto_derived_term_min_freq**: `3`
 
 ---
 
@@ -236,8 +251,12 @@ Carregadas via `python -m app.seed` (idempotente):
 | PUT | `/api/settings/{key}` | Atualiza valor (cifra se `is_secret=True`; vazio limpa; reschedule dinâmico se for `sync_interval_hours`) |
 | GET | `/api/discovery/defaults` | Defaults das `search.*` settings pra popular o form |
 | POST | `/api/discovery/search` | Executa busca YouTube, persiste run + resultados |
-| GET | `/api/discovery/runs?limit=` | Histórico de buscas (resumo) |
-| GET | `/api/discovery/runs/{id}` | Run com resultados aninhados |
+| GET | `/api/discovery/runs?limit=` | Histórico de buscas — agora inclui `progress {channels_total/reviewed, videos_total/reviewed}` por run |
+| GET | `/api/discovery/runs/{id}` | Run com resultados aninhados + `progress` + `reviewed_at` por item |
+| PATCH | `/api/discovery/runs/{run_id}/channels/{result_id}/review` | Marca/desmarca canal como revisado (`{reviewed: bool}`) |
+| PATCH | `/api/discovery/runs/{run_id}/videos/{result_id}/review` | Idem para vídeo |
+| GET | `/api/discovery/blacklist` | Lista canais blacklistados (cada `delete_channel` adiciona) |
+| DELETE | `/api/discovery/blacklist/{youtube_channel_id}` | Remove da blacklist (permite re-monitorar) |
 | GET | `/api/monitoring/channels` | Canais + último snapshot (subs, views, deltas, last_sync) |
 | POST | `/api/monitoring/channels` | Adiciona canal por `youtube_channel_id` (idempotente) |
 | PATCH | `/api/monitoring/channels/{id}` | Altera `status` (`active`/`paused`/`removed`) |
@@ -345,7 +364,15 @@ Carregadas via `python -m app.seed` (idempotente):
 
 34. **Ações em massa em Monitoramento** (2026-04-25): canais e vídeos têm 6 endpoints bulk em [api/app/routers/monitoring.py](api/app/routers/monitoring.py): `bulk-status` (PATCH), `bulk-snapshot` (POST) e `bulk-delete` (POST, não DELETE — body `{ids}` no DELETE quebra clientes simples). Helper `_run_bulk(ids, op)` itera item a item capturando exceções por id e devolve `BulkOperationResponse {total, success_count, error_count, processed_ids, errors:[{id,message}]}` — falha individual **não** trava o lote. Reusa `monitoring_service.set_channel_status / snapshot_channel / delete_channel` (e equivalentes de vídeo). Importante: as rotas bulk são registradas **antes** das `/{id}` no router para FastAPI não tentar casar `bulk-status` contra o path param `int`. Frontend ([web/app/monitoramento/MonitoramentoView.tsx](web/app/monitoramento/MonitoramentoView.tsx)) tem estado `selectedChannelIds: Set<number>` e `selectedVideoIds: Set<number>`, checkbox por linha + header com `indeterminate`, barra `.bulk-actions-bar` com Atualizar/Pausar-Retomar/Remover/Limpar (botão único quando seleção é homogênea, dois botões quando mistura `active`+`paused`). Após resposta: `processed_ids` saem da seleção (falhados ficam pra retry), `useEffect` limpa IDs stale após `refreshChannels/refreshVideos`. Toast resume sucesso total/parcial (com amostra de 3 erros + contador).
 
-35. **Responsividade real** (2026-04-25, Plano A + Plano B): a aplicação não é mais desktop-only.
+36. **Descoberta automática pós-sync** (2026-04-25): após cada `run_sync` terminar (success/partial), [api/app/services/sync_service.py](api/app/services/sync_service.py) chama em `try/except` próprio (com import tardio pra evitar ciclo) o [api/app/services/auto_discovery_service.py](api/app/services/auto_discovery_service.py). O `run_auto_discovery` (a) checa flag `discovery.auto_enabled`, (b) calcula orçamento `daily_quota_per_key × num_keys × discovery.auto_quota_pct` (default 50%), (c) monta lista de termos via `pick_terms_for_run` = **70% seed (rotação determinística por hora atual, sem persistir estado) + 30% derivados** de palavras frequentes em títulos de `Channel` + últimos 500 `DiscoveryResultChannel` (filtra stopwords pt+en, palavras com 4+ chars, `min_freq=3`), (d) corta lista por orçamento usando `ESTIMATED_COST_PER_TERM=300` (conservador: 1 página × 3 idiomas × 100 units), (e) reusa `discovery_service.run_discovery` com `pages_per_term=1` (prefere alcance a profundidade). **Nunca propaga exceção** — falha aqui não pode invalidar o sync. Termos seed iniciais (~95, pt+en) em [api/app/services/discovery_seed_terms.py](api/app/services/discovery_seed_terms.py); valor ativo fica em `discovery.auto_keywords` (multiline, editável em /configuracoes).
+
+37. **Blacklist de canais removidos** (2026-04-25): `monitoring_service.delete_channel` insere o `youtube_channel_id` em `channel_blacklist` (idempotente, `reason='user_removed'`) **antes** de fazer o cascade delete. `discovery_service.run_discovery` chama `get_blacklisted_channel_ids(db)` entre os passos 3 (filtro de vídeos) e 4 (hidratação de canais) — descarta vídeos cujo `channelId` está na blacklist, evitando o custo de `channels.list`. Endpoints `GET /api/discovery/blacklist` e `DELETE /api/discovery/blacklist/{yt_id}` permitem inspecionar e remover (re-monitorar exige tirar da blacklist primeiro). Estado de revisão por item: `discovery_results_channels.reviewed_at` e `discovery_results_videos.reviewed_at` (TIMESTAMP NULL) marcam o que o usuário já triou — preservado entre sessões. UI em /runs > Descoberta: linha clicável expande detalhes inline (`GET /api/discovery/runs/:id`), checkbox "OK" por item, contador `X/Y revisados (Z%)` na linha resumida. Adicionar item ao monitoramento marca implicitamente como revisado.
+
+38. **Bulk progress bar — snapshot itemizado** (2026-04-25): apenas o snapshot em massa virou itemizado no frontend (canais e vídeos). Status e delete continuam usando os endpoints `bulk-*` originais (são instantâneos). Helper `runItemizedSnapshot` em [web/app/monitoramento/MonitoramentoView.tsx](web/app/monitoramento/MonitoramentoView.tsx) dispara N `apiPost` unitários via pool com `BULK_CONCURRENCY=4` (não estoura conexão nem quota), atualiza state `BulkProgress {label, total, done, success, failed}` por item, remove o id da seleção em tempo real via `onSuccess(id)`, mostra `<BulkProgressBar>` acima das abas com barra que muda de cor (`running/ok/partial/fail`) e contador `done/total (pct%)`. No fim, toast resume e a barra fica 2s na tela. Os endpoints bulk antigos (`/channels/bulk-snapshot`, `/videos/bulk-snapshot`) **continuam existindo** mas não são mais usados pela UI — mantidos pra cliente CLI/script externo se precisar.
+
+39. **Notificações do navegador** (2026-04-25, escopo inicial): `Notification` API nativa, **funciona só com aba aberta**. Não usa Service Worker / Web Push (entrega em background completa exigiria backend de push com VAPID + persistência de subscription). Hook [web/lib/useBrowserNotifications.ts](web/lib/useBrowserNotifications.ts) expõe estados (`unsupported|default|granted|denied`) + preferência `enabled` em `localStorage` (per-device — não faz sentido sincronizar). [web/components/NotificationsSettings.tsx](web/components/NotificationsSettings.tsx) fica no topo da `/configuracoes` com toggle inteligente que adapta texto por estado. Eventos disparadores: por enquanto, **só término de sync** — [web/components/GlobalSyncIndicator.tsx](web/components/GlobalSyncIndicator.tsx) detecta transição `running → terminado` (ou run novo já terminado, comparando `prevStatus`+`prevId`) e dispara `Notification` com título por status (`Sync concluído ✓` / `... com falhas parciais` / `Sync falhou`) e body `channels_processed · videos_processed`. `tag: sync-{id}` evita duplicatas se o browser re-mostrar.
+
+40. **Responsividade real** (2026-04-25, Plano A + Plano B): a aplicação não é mais desktop-only.
     - **Plano A (shell + breakpoints)**: [web/components/Sidebar.tsx](web/components/Sidebar.tsx) virou drawer mobile com botão hambúrguer fixed, ESC fecha, troca de rota fecha, click no overlay fecha, `body { overflow: hidden }` enquanto aberto. [web/app/globals.css](web/app/globals.css) tem 3 breakpoints reais: ≤1024 (sidebar 200px, padding reduzido, analytics-overview 2 col), ≤768 (sidebar fixed transformX, hambúrguer aparece, `.main` ganha padding-top 64px, tabs roláveis horizontalmente, filter-bar quebra em linhas, row-actions com tap target ≥36px, tabelas com `overflow-x: auto` + paddings reduzidos, toaster ancorado no rodapé largura quase total, card-grid 1 col, video-grid `minmax(220px,1fr)`), ≤480 (tipografia menor, botões 36px+, bulk-actions empilhada com botões 38px+). Bulk-actions já empilha em ≤600.
     - **Plano B (cards stackados em `/monitoramento`)**: hook [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) usa `matchMedia` (default ≤768), SSR-safe. `MonitoramentoView` renderiza **dois blocos** por aba — `desktop-only` (tabela existente) e `mobile-only` (lista de `.mobile-card`). Cards têm header (checkbox + avatar + título + status), grid 2x2 de meta, ações row, e uma toolbar acima com "Selecionar todos / Desmarcar todos" + contador. `ChannelsFilterBar` ganhou `showSortDropdown` espelhando o que `VideosFilterBar` já tinha — em mobile ambos mostram select de ordenação inline. Aba Vídeos > grid já era responsiva, não foi tocada. Estado e handlers de seleção/bulk **reaproveitados** sem duplicação. Outras telas (`/dashboard`, `/descoberta`, `/runs`, `/configuracoes`) já usam grids responsivos (`card-grid`, `form-grid`, `settings-row`) e `.table-wrap` com `overflow-x` — sem intervenção pontual necessária. **Validação visual em 360/390/768/1024 é responsabilidade do usuário** (a IA não testa visual).
 
@@ -430,6 +457,10 @@ URLs: Dashboard <http://localhost:3000>, Swagger <http://localhost:8000/docs>.
 - **Docker Desktop não instalado na máquina dev** (2026-04-24) — o primeiro build real dos Dockerfiles foi no EasyPanel. Resultaram em 3 fixes (scheduler tolerante a banco vazio, escape de `%` no env.py do Alembic, remoção do `COPY /app/public`).
 - **Domínios EasyPanel — destino HTTP, externo HTTPS**. Marcar HTTPS no destino faz o proxy Traefik mandar TLS pro uvicorn/Next que servem só HTTP cru no container → "Invalid HTTP request received" e 500. Vale pra `-api` (8000) e `-web` (3000).
 - **Webhook de deploy do EasyPanel é uma credencial**. Cada serviço tem seu próprio. Estão guardados em `temporary_rules.md` (gitignorado). Não ecoar em respostas pro usuário depois de salvos.
+- **Auto-discovery em base nova/sem canais**: a derivação de termos depende de já haver `Channel` ou `DiscoveryResultChannel` no banco. Em base zerada, os primeiros runs usam só termos seed — esperado, vai melhorar conforme aparecem canais.
+- **Notificações do navegador só com aba aberta**: a Notification API atual NÃO entrega em background. Pra entrega real (PWA / Web Push), precisa Service Worker + backend de push com VAPID keys + persistência de subscriptions — é tarefa separada não implementada.
+- **Migration 56a880b51364 não foi rodada em prod**: a migration `add_blacklist_and_review_state` (cria `channel_blacklist` + `reviewed_at` em `discovery_results_*`) e os 5 settings novos `discovery.*` precisam de `alembic upgrade head` + `python -m app.seed` no shell do EasyPanel após o deploy. Sem isso, qualquer `delete_channel` ou auto-discovery vai estourar erro de tabela/coluna inexistente.
+- **Bulk endpoints antigos seguem expostos**: `/api/monitoring/{channels,videos}/bulk-snapshot` ainda existem mas a UI principal não usa mais (substituído pelo `runItemizedSnapshot`). Mantido por compat com qualquer script CLI; remover só se confirmar que ninguém depende.
 
 ---
 

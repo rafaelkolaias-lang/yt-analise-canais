@@ -242,6 +242,7 @@ class DiscoveryResultChannel(Base):
     matched_term: Mapped[Optional[str]] = mapped_column(String(255))
 
     captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     run: Mapped["DiscoveryRun"] = relationship(back_populates="channel_results")
 
@@ -272,6 +273,7 @@ class DiscoveryResultVideo(Base):
     matched_term: Mapped[Optional[str]] = mapped_column(String(255))
 
     captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     run: Mapped["DiscoveryRun"] = relationship(back_populates="video_results")
 
@@ -333,4 +335,24 @@ class AppSetting(Base):
     description: Mapped[Optional[str]] = mapped_column(String(255))
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+
+# =============================================================================
+# Blacklist — canais removidos pelo usuário não voltam por discovery
+# =============================================================================
+class ChannelBlacklist(Base):
+    """
+    Canais que o usuário removeu explicitamente. Discovery filtra por aqui
+    antes de hidratar resultados (economiza quota) e nunca os reaceita.
+    """
+    __tablename__ = "channel_blacklist"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    youtube_channel_id: Mapped[str] = mapped_column(
+        String(32), nullable=False, unique=True, index=True
+    )
+    reason: Mapped[Optional[str]] = mapped_column(String(64))
+    blacklisted_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
     )

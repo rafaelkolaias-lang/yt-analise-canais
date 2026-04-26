@@ -1,6 +1,7 @@
 from app.models.domain import (
     AppSetting,
     Channel,
+    ChannelBlacklist,
     ChannelSnapshot,
     ChannelTag,
     DiscoveryResultChannel,
@@ -15,6 +16,7 @@ from app.models.domain import (
 __all__ = [
     "AppSetting",
     "Channel",
+    "ChannelBlacklist",
     "ChannelSnapshot",
     "ChannelTag",
     "DiscoveryResultChannel",

@@ -55,3 +55,11 @@ def get_csv(db: Session, key: str, default: list[str]) -> list[str]:
     if not s:
         return default
     return [part.strip() for part in s.split(",") if part.strip()]
+
+
+def get_bool(db: Session, key: str, default: bool) -> bool:
+    row = db.query(AppSetting).filter_by(key=key).one_or_none()
+    if row is None:
+        return default
+    val = _cast(row.value, "bool", default)
+    return bool(val)

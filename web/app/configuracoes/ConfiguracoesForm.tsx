@@ -8,11 +8,22 @@ import { SettingInput } from "@/components/SettingInput";
 import { useToast } from "@/components/Toaster";
 import { apiPut, type AppSetting } from "@/lib/api";
 
+type Subgroup = {
+  id: string;
+  title: string;
+  description?: string;
+  match: (key: string) => boolean;
+};
+
 type Section = {
   id: string;
   title: string;
   description?: string;
   match: (key: string) => boolean;
+  // Quando definido, os itens da seção são divididos em subgrupos. Cada chave é
+  // testada na ordem; a primeira que casar leva o item. Itens sem subgrupo caem
+  // num bloco "Outros" no fim da seção.
+  subgroups?: Subgroup[];
 };
 
 const SECTIONS: Section[] = [
@@ -60,6 +71,31 @@ const SECTIONS: Section[] = [
     description:
       "Thresholds das recomendações exibidas em Monitoramento → Sugestões. São RECOMENDAÇÕES — nada é executado automaticamente. Estão separadas das outras configs para evitar mistura.",
     match: (k) => k.startsWith("suggestions."),
+    subgroups: [
+      {
+        id: "monitor-basic",
+        title: "Sugerir canais para monitorar (regra simples)",
+        description:
+          "Canal descoberto vira sugestão se tiver VPD acima do mínimo E idade abaixo do máximo.",
+        match: (k) =>
+          k === "suggestions.monitor_min_vpd" ||
+          k === "suggestions.monitor_max_age_days",
+      },
+      {
+        id: "monitor-breakout",
+        title: "Sugerir breakout precoce",
+        description:
+          "Canal pequeno e novo, com poucos vídeos, mas com um vídeo desproporcional. Todas as condições valem em conjunto (E lógico).",
+        match: (k) => k.startsWith("suggestions.monitor_breakout_"),
+      },
+      {
+        id: "dead",
+        title: "Sugerir canais mortos para pausar/remover",
+        description:
+          "Canal monitorado sem novos uploads há muito tempo E com VPD baixo. As regras valem em conjunto (E lógico).",
+        match: (k) => k.startsWith("suggestions.dead_"),
+      },
+    ],
   },
   {
     id: "youtube",
@@ -113,6 +149,114 @@ export function ConfiguracoesForm({ initial }: Props) {
     return groups;
   }, [settings]);
 
+  function renderRow(item: AppSetting) {
+    return (
+      <div key={item.key} className="settings-row">
+        <div className="settings-meta">
+          <div style={{ fontSize: 13, fontWeight: 500 }}>
+            {item.description || item.key}
+          </div>
+          {item.description && (
+            <code
+              className="muted"
+              style={{ fontSize: 11, marginTop: 2, display: "block" }}
+            >
+              {item.key}
+            </code>
+          )}
+        </div>
+        <div className="settings-control">
+          {item.is_secret ? (
+            <SecretInput
+              hasValue={item.has_value}
+              masked={item.value}
+              onSave={(v) => save(item.key, v)}
+              onClear={() => save(item.key, "")}
+              multiline={item.key === "youtube.api_keys"}
+              placeholder={
+                item.key === "youtube.api_keys"
+                  ? "uma chave por linha"
+                  : undefined
+              }
+            />
+          ) : (
+            <SettingInput
+              initialValue={item.value}
+              valueType={item.value_type}
+              multiline={item.key === "discovery.auto_keywords"}
+              onSave={(v) => save(item.key, v)}
+            />
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  function renderSectionBody(section: Section, items: AppSetting[]) {
+    if (!section.subgroups || section.subgroups.length === 0) {
+      return <div className="settings-list">{items.map(renderRow)}</div>;
+    }
+
+    const claimed = new Set<string>();
+    const subgroupBlocks = section.subgroups.map((sub) => {
+      const subItems = items.filter((i) => sub.match(i.key));
+      subItems.forEach((i) => claimed.add(i.key));
+      return { sub, items: subItems };
+    });
+    const leftover = items.filter((i) => !claimed.has(i.key));
+
+    return (
+      <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+        {subgroupBlocks.map(({ sub, items: subItems }) =>
+          subItems.length === 0 ? null : (
+            <div key={sub.id}>
+              <div style={{ marginBottom: 8 }}>
+                <h4
+                  style={{
+                    margin: 0,
+                    fontSize: 13,
+                    color: "var(--text)",
+                    textTransform: "uppercase",
+                    letterSpacing: 0.5,
+                  }}
+                >
+                  {sub.title}
+                </h4>
+                {sub.description && (
+                  <p
+                    className="muted"
+                    style={{ margin: "2px 0 0", fontSize: 12 }}
+                  >
+                    {sub.description}
+                  </p>
+                )}
+              </div>
+              <div className="settings-list">{subItems.map(renderRow)}</div>
+            </div>
+          )
+        )}
+        {leftover.length > 0 && (
+          <div>
+            <div style={{ marginBottom: 8 }}>
+              <h4
+                style={{
+                  margin: 0,
+                  fontSize: 13,
+                  color: "var(--text)",
+                  textTransform: "uppercase",
+                  letterSpacing: 0.5,
+                }}
+              >
+                Outros
+              </h4>
+            </div>
+            <div className="settings-list">{leftover.map(renderRow)}</div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <NotificationsSettings />
@@ -127,48 +271,7 @@ export function ConfiguracoesForm({ initial }: Props) {
                 </p>
               )}
             </header>
-            <div className="settings-list">
-              {items.map((item) => (
-                <div key={item.key} className="settings-row">
-                  <div className="settings-meta">
-                    <div style={{ fontSize: 13, fontWeight: 500 }}>
-                      {item.description || item.key}
-                    </div>
-                    {item.description && (
-                      <code
-                        className="muted"
-                        style={{ fontSize: 11, marginTop: 2, display: "block" }}
-                      >
-                        {item.key}
-                      </code>
-                    )}
-                  </div>
-                  <div className="settings-control">
-                    {item.is_secret ? (
-                      <SecretInput
-                        hasValue={item.has_value}
-                        masked={item.value}
-                        onSave={(v) => save(item.key, v)}
-                        onClear={() => save(item.key, "")}
-                        multiline={item.key === "youtube.api_keys"}
-                        placeholder={
-                          item.key === "youtube.api_keys"
-                            ? "uma chave por linha"
-                            : undefined
-                        }
-                      />
-                    ) : (
-                      <SettingInput
-                        initialValue={item.value}
-                        valueType={item.value_type}
-                        multiline={item.key === "discovery.auto_keywords"}
-                        onSave={(v) => save(item.key, v)}
-                      />
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
+            {renderSectionBody(section, items)}
           </section>
         )
       )}

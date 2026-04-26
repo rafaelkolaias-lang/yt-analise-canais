@@ -41,6 +41,8 @@ export function DescobertaForm({ defaults }: Props) {
   const [minDuration, setMinDuration] = useState(defaults.min_duration_seconds);
   const [languages, setLanguages] = useState(defaults.languages.join(", "));
   const [pagesPerTerm, setPagesPerTerm] = useState(defaults.pages_per_term);
+  const [minChannelAge, setMinChannelAge] = useState(defaults.min_channel_age_days);
+  const [maxChannelAge, setMaxChannelAge] = useState(defaults.max_channel_age_days);
 
   const [loading, setLoading] = useState(false);
   const [run, setRun] = useState<DiscoveryRun | null>(null);
@@ -70,6 +72,8 @@ export function DescobertaForm({ defaults }: Props) {
       min_duration_seconds: minDuration,
       languages: langs,
       pages_per_term: pagesPerTerm,
+      min_channel_age_days: minChannelAge,
+      max_channel_age_days: maxChannelAge,
     };
 
     setLoading(true);
@@ -217,6 +221,28 @@ export function DescobertaForm({ defaults }: Props) {
               className="input"
               value={pagesPerTerm}
               onChange={(e) => setPagesPerTerm(Number(e.target.value))}
+              disabled={loading}
+            />
+          </label>
+
+          <label className="form-field">
+            <span>Idade mín. do canal (dias)</span>
+            <input
+              type="number"
+              className="input"
+              value={minChannelAge}
+              onChange={(e) => setMinChannelAge(Number(e.target.value))}
+              disabled={loading}
+            />
+          </label>
+
+          <label className="form-field">
+            <span>Idade máx. do canal (dias)</span>
+            <input
+              type="number"
+              className="input"
+              value={maxChannelAge}
+              onChange={(e) => setMaxChannelAge(Number(e.target.value))}
               disabled={loading}
             />
           </label>

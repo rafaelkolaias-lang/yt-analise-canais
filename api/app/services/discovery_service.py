@@ -49,6 +49,12 @@ class DiscoveryFilters:
     min_duration_seconds: int
     languages: list[str]
     pages_per_term: int
+    # Janela de idade do CANAL (não do vídeo). Canais cuja idade em dias está
+    # fora de [min_channel_age_days, max_channel_age_days] são descartados
+    # junto com seus vídeos. None em qualquer um dos dois desliga o limite
+    # correspondente.
+    min_channel_age_days: Optional[int] = None
+    max_channel_age_days: Optional[int] = None
 
 
 # =============================================================================
@@ -102,6 +108,40 @@ def pick_thumbnail(snippet: dict) -> Optional[str]:
     return None
 
 
+def _filter_channels_by_age(
+    channels_by_id: dict,
+    min_age_days: Optional[int],
+    max_age_days: Optional[int],
+) -> set[str]:
+    """
+    Devolve o conjunto de channel_ids que passam no filtro de idade.
+
+    Regra: idade do canal = (agora UTC) - snippet.publishedAt, em dias.
+    O canal é aceito quando `min_age_days <= idade <= max_age_days`.
+    Se um dos limites for None, ele é ignorado (sem corte naquele lado).
+    Canal sem `publishedAt` é mantido — não temos como avaliar e descartar
+    seria perder cobertura à toa.
+    """
+    if min_age_days is None and max_age_days is None:
+        return set(channels_by_id.keys())
+
+    now = datetime.now(timezone.utc)
+    accepted: set[str] = set()
+    for cid, channel in channels_by_id.items():
+        snippet = (channel.get("snippet") or {}) if isinstance(channel, dict) else {}
+        published = parse_iso_dt(snippet.get("publishedAt") or "")
+        if published is None:
+            accepted.add(cid)
+            continue
+        age_days = (now - published).total_seconds() / 86400.0
+        if min_age_days is not None and age_days < min_age_days:
+            continue
+        if max_age_days is not None and age_days > max_age_days:
+            continue
+        accepted.add(cid)
+    return accepted
+
+
 def load_default_filters(db: Session) -> dict:
     """Lê defaults das app_settings para usar como fallback na UI."""
     return {
@@ -111,6 +151,8 @@ def load_default_filters(db: Session) -> dict:
         "min_duration_seconds": settings_reader.get_int(db, "search.min_duration_seconds", 60),
         "languages": settings_reader.get_csv(db, "search.languages", ["pt", "en", "es"]),
         "pages_per_term": settings_reader.get_int(db, "search.pages_per_term", 2),
+        "min_channel_age_days": settings_reader.get_int(db, "channel.min_age_days", 30),
+        "max_channel_age_days": settings_reader.get_int(db, "channel.max_age_days", 3650),
     }
 
 
@@ -132,6 +174,8 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
                 "min_duration_seconds": filters.min_duration_seconds,
                 "languages": filters.languages,
                 "pages_per_term": filters.pages_per_term,
+                "min_channel_age_days": filters.min_channel_age_days,
+                "max_channel_age_days": filters.max_channel_age_days,
             }
         ),
         status="running",
@@ -205,6 +249,23 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
         # 4) hidrata canais únicos (blacklist já foi filtrada acima)
         channels = client.channels_by_ids(list(channel_ids_seen)) if channel_ids_seen else []
         channels_by_id = {c.get("id"): c for c in channels}
+
+        # 4.1) filtro de idade do CANAL — descarta canais fora da janela
+        # [min_channel_age_days, max_channel_age_days] e tudo que veio deles.
+        # Canal sem `publishedAt` (raro) é mantido pra não perder cobertura.
+        accepted_channel_ids = _filter_channels_by_age(
+            channels_by_id,
+            min_age_days=filters.min_channel_age_days,
+            max_age_days=filters.max_channel_age_days,
+        )
+        channels_by_id = {
+            cid: c for cid, c in channels_by_id.items() if cid in accepted_channel_ids
+        }
+        filtered_videos = [
+            (v, term)
+            for v, term in filtered_videos
+            if (v.get("snippet", {}) or {}).get("channelId") in accepted_channel_ids
+        ]
 
         # 5) persiste video results
         for v, matched_term in filtered_videos:

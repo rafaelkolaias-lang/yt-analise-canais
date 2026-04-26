@@ -413,7 +413,9 @@ def _last_video_snapshot(db: Session, tracked_video_id: int) -> Optional[VideoSn
     )
 
 
-def snapshot_channel(db: Session, channel_id: int, sample_size: int = 10) -> ChannelSnapshot:
+def snapshot_channel(
+    db: Session, channel_id: int, sample_size: Optional[int] = None
+) -> ChannelSnapshot:
     """
     Puxa estado atual do canal no YouTube + detecta melhor vídeo dos últimos uploads
     (acumulativo) + grava ChannelSnapshot com deltas vs último snapshot.
@@ -423,10 +425,18 @@ def snapshot_channel(db: Session, channel_id: int, sample_size: int = 10) -> Cha
       - playlistItems: 1
       - videos.list: 1
       Total ~3 units por canal.
+
+    `sample_size`: quantos uploads recentes usar como amostra para detectar o
+    melhor VPD e calcular `uploads_per_week`. Quando None (padrão), lê de
+    `app_settings.monitor.best_videos_sample_size` (default 10). Permite
+    overide explícito por chamadores que queiram outra janela.
     """
     channel = db.query(Channel).filter_by(id=channel_id).one_or_none()
     if channel is None:
         raise LookupError(f"canal id={channel_id} não existe")
+
+    if sample_size is None:
+        sample_size = settings_reader.get_int(db, "monitor.best_videos_sample_size", 10)
 
     client = youtube_client.build_from_db(db)
 

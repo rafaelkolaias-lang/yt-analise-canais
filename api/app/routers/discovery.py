@@ -70,6 +70,12 @@ def search(req: SearchRequest, db: Session = Depends(get_db)) -> DiscoveryRunRea
         else defaults["min_duration_seconds"],
         languages=req.languages if req.languages is not None else defaults["languages"],
         pages_per_term=req.pages_per_term if req.pages_per_term is not None else defaults["pages_per_term"],
+        min_channel_age_days=req.min_channel_age_days
+        if req.min_channel_age_days is not None
+        else defaults["min_channel_age_days"],
+        max_channel_age_days=req.max_channel_age_days
+        if req.max_channel_age_days is not None
+        else defaults["max_channel_age_days"],
     )
     if not filters.terms:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Informe pelo menos um termo.")

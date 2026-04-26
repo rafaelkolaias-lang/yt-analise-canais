@@ -14,6 +14,8 @@ class SearchRequest(BaseModel):
     min_duration_seconds: Optional[int] = None
     languages: Optional[list[str]] = None
     pages_per_term: Optional[int] = None
+    min_channel_age_days: Optional[int] = None
+    max_channel_age_days: Optional[int] = None
 
 
 class DefaultFiltersRead(BaseModel):
@@ -23,6 +25,8 @@ class DefaultFiltersRead(BaseModel):
     min_duration_seconds: int
     languages: list[str]
     pages_per_term: int
+    min_channel_age_days: int
+    max_channel_age_days: int
 
 
 class ResultVideoRead(BaseModel):

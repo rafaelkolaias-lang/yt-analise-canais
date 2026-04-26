@@ -213,6 +213,10 @@ def run_auto_discovery(db: Session) -> Optional[DiscoveryRun]:
         # Auto-discovery pega apenas 1 página por termo pra estender o
         # alcance (mais termos) em vez de aprofundar (mais páginas).
         pages_per_term=1,
+        # Mesmos limites de idade do canal aplicados na descoberta manual,
+        # vindos das mesmas settings (channel.min/max_age_days).
+        min_channel_age_days=defaults["min_channel_age_days"],
+        max_channel_age_days=defaults["max_channel_age_days"],
     )
 
     try:

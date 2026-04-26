@@ -83,6 +83,8 @@ export type DiscoveryDefaults = {
   min_duration_seconds: number;
   languages: string[];
   pages_per_term: number;
+  min_channel_age_days: number;
+  max_channel_age_days: number;
 };
 
 export type DiscoverySearchRequest = {
@@ -93,6 +95,8 @@ export type DiscoverySearchRequest = {
   min_duration_seconds?: number;
   languages?: string[];
   pages_per_term?: number;
+  min_channel_age_days?: number;
+  max_channel_age_days?: number;
 };
 
 export type ResultChannel = {

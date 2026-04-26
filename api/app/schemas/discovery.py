@@ -33,6 +33,7 @@ class ResultVideoRead(BaseModel):
     youtube_channel_id: Optional[str] = None
     title: str
     url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
     views: Optional[int] = None
     likes: Optional[int] = None
     duration_seconds: Optional[int] = None
@@ -50,6 +51,7 @@ class ResultChannelRead(BaseModel):
     youtube_channel_id: str
     title: str
     url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
     subscribers: Optional[int] = None
     views_total: Optional[int] = None
     video_count: Optional[int] = None

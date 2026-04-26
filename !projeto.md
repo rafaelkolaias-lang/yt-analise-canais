@@ -41,7 +41,7 @@ yt-analise-canais-web/
 ├── api/                              # Backend FastAPI
 │   ├── app/
 │   │   ├── main.py                   # FastAPI + lifespan (scheduler) + CORS + routers
-│   │   ├── seed.py                   # seed idempotente de 13 app_settings
+│   │   ├── seed.py                   # seed idempotente de 24 app_settings
 │   │   ├── core/
 │   │   │   ├── config.py             # Settings (pydantic-settings, lê .env)
 │   │   │   ├── database.py           # engine, SessionLocal, Base, get_db()
@@ -50,7 +50,7 @@ yt-analise-canais-web/
 │   │   ├── routers/
 │   │   │   ├── health.py             # / | /health | /health/db
 │   │   │   ├── settings.py           # /api/settings  (GET list, GET :key, PUT :key)
-│   │   │   ├── discovery.py          # /api/discovery/{defaults,search,runs,runs/:id}
+│   │   │   ├── discovery.py          # /api/discovery/{defaults,search,runs,runs/:id,runs/:id/.../review,blacklist}
 │   │   │   ├── monitoring.py         # /api/monitoring/{channels,videos} + snapshot/patch/delete/best-videos + bulk-status/bulk-snapshot/bulk-delete
 │   │   │   ├── sync.py               # /api/sync/{status,run,runs}
 │   │   │   ├── suggestions.py        # /api/suggestions/{to-monitor,to-remove}
@@ -79,7 +79,10 @@ yt-analise-canais-web/
 │   ├── migrations/
 │   │   ├── env.py                    # injeta DATABASE_URL do .env
 │   │   └── versions/
-│   │       └── d69d8c5c7a0e_initial_schema.py
+│   │       ├── d69d8c5c7a0e_initial_schema.py        # schema inicial (11 tabelas)
+│   │       ├── 59b9687df885_add_thumbnail_urls.py    # +thumbnail_url em channels e tracked_videos
+│   │       ├── 56a880b51364_add_blacklist_and_review_state.py  # +channel_blacklist, reviewed_at em discovery_results_*
+│   │       └── d6df02f56387_add_channel_published_at.py  # +channel_published_at em discovery_results_channels
 │   ├── alembic.ini
 │   ├── requirements.txt
 │   ├── Dockerfile                    # Python 3.11-slim + uvicorn (porta 8000)
@@ -99,7 +102,7 @@ yt-analise-canais-web/
 │   │   │   └── DescobertaForm.tsx    # client: form + busca + tabelas + ações Monitorar
 │   │   ├── monitoramento/
 │   │   │   ├── page.tsx              # server: carrega channels + videos
-│   │   │   └── MonitoramentoView.tsx # client: 3 abas (Canais, Vídeos, Melhores)
+│   │   │   └── MonitoramentoView.tsx # client: 4 abas (Canais, Vídeos, Melhores, Sugestões); BulkProgressBar inline; cards mobile (Plano B)
 │   │   ├── runs/
 │   │   │   ├── page.tsx              # server: carrega sync_runs + discovery_runs
 │   │   │   └── RunsView.tsx          # client: 2 abas (Sync, Descoberta)
@@ -107,21 +110,21 @@ yt-analise-canais-web/
 │   │   │   ├── page.tsx              # server: carrega settings
 │   │   │   └── ConfiguracoesForm.tsx # client: agrupa por prefixo, salva inline
 │   │   └── analytics/
-│   │       ├── page.tsx              # server: carrega overview + channels + niches
-│   │       └── AnalyticsView.tsx     # client: 4 cards + cartões por canal (mini-charts) + nichos
+│   │       ├── page.tsx              # server: carrega só niches (overview vai pelo client p/ respeitar filtro de status)
+│   │       └── AnalyticsView.tsx     # client: filtro de status (Ativos/Pausados/Removidos/Todos) + 4 cards overview + cartões por canal + nichos
 │   ├── components/
-│   │   ├── Sidebar.tsx                # navegação fixa (6 itens)
-│   │   ├── SettingInput.tsx           # input plain com botão Salvar (dirty-aware)
+│   │   ├── Sidebar.tsx                # navegação 6 itens; vira drawer + hambúrguer em ≤768px
+│   │   ├── SettingInput.tsx           # input/textarea com botão Salvar (dirty-aware) OU toggle switch quando valueType==='bool' (auto-save no clique)
 │   │   ├── SecretInput.tsx            # input password com máscara + Alterar/Remover (suporta multiline)
 │   │   ├── ChannelChart.tsx           # Recharts wrapper (LineChart/BarChart + tooltip pt-BR)
 │   │   ├── ChannelAvatar.tsx          # avatar circular com fallback (inicial do título)
 │   │   ├── VideoThumbnail.tsx         # thumb 16:9 com fallback "sem thumb"
 │   │   ├── AddByLinkInput.tsx         # input pra colar link/ID e adicionar canal/vídeo
-│   │   ├── ChannelsFilterBar.tsx      # filtros+ordenação da aba Canais (client-side)
-│   │   ├── VideosFilterBar.tsx        # filtros+ordenação da aba Vídeos (dropdown só na grade)
+│   │   ├── ChannelsFilterBar.tsx      # filtros+ordenação da aba Canais (client-side); showSortDropdown em mobile
+│   │   ├── VideosFilterBar.tsx        # filtros+ordenação da aba Vídeos (dropdown na grade ou em mobile)
 │   │   ├── SortableHeader.tsx         # <th> clicável com cicle desc/asc/default
 │   │   ├── Toaster.tsx                # Context + hook useToast (success/error/info)
-│   │   ├── GlobalSyncIndicator.tsx    # badge no topo que polla /api/sync/status a cada 5s
+│   │   ├── GlobalSyncIndicator.tsx    # badge no topo que polla /api/sync/status a cada 5s; dispara Notification ao detectar fim de sync
 │   │   ├── Skeleton.tsx               # bloco animado (shimmer) para estados de loading
 │   │   ├── ErrorCard.tsx              # cartão de erro padronizado com botão "Tentar de novo"
 │   │   └── NotificationsSettings.tsx  # toggle de notificações do navegador (configurações)
@@ -171,7 +174,10 @@ yt-analise-canais-web/
 | API /settings (público, mascara) | [api/app/services/settings_service.py](api/app/services/settings_service.py), [api/app/routers/settings.py](api/app/routers/settings.py) |
 | Leitura interna de settings (cast) | [api/app/services/settings_reader.py](api/app/services/settings_reader.py) |
 | Cliente YouTube + rotação | [api/app/services/youtube_client.py](api/app/services/youtube_client.py) |
-| Regras de descoberta | [api/app/services/discovery_service.py](api/app/services/discovery_service.py), [api/app/routers/discovery.py](api/app/routers/discovery.py) |
+| Regras de descoberta (manual) | [api/app/services/discovery_service.py](api/app/services/discovery_service.py), [api/app/routers/discovery.py](api/app/routers/discovery.py) |
+| Descoberta automática (orçamento + termos derivados) | [api/app/services/auto_discovery_service.py](api/app/services/auto_discovery_service.py), [api/app/services/discovery_seed_terms.py](api/app/services/discovery_seed_terms.py) |
+| Blacklist de canais (delete + filtro) | [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py) (`delete_channel`), [api/app/services/discovery_service.py](api/app/services/discovery_service.py) (`get_blacklisted_channel_ids`) |
+| Sugestões de monitoramento (recomendar/remover) | [api/app/services/suggestions_service.py](api/app/services/suggestions_service.py), [api/app/routers/suggestions.py](api/app/routers/suggestions.py) |
 | Regras de monitoramento/snapshots | [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py), [api/app/routers/monitoring.py](api/app/routers/monitoring.py) |
 | Regras de sync (scheduler + manual) | [api/app/services/sync_service.py](api/app/services/sync_service.py), [api/app/routers/sync.py](api/app/routers/sync.py) |
 | Regras de analytics (agregação snapshots) | [api/app/services/analytics_service.py](api/app/services/analytics_service.py), [api/app/routers/analytics.py](api/app/routers/analytics.py) |
@@ -179,10 +185,7 @@ yt-analise-canais-web/
 | Cliente HTTP + tipos | [web/lib/api.ts](web/lib/api.ts) |
 | Hook `useIsMobile` (matchMedia) | [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) |
 | Hook `useBrowserNotifications` (Notification API + permission) | [web/lib/useBrowserNotifications.ts](web/lib/useBrowserNotifications.ts) |
-| Descoberta automática (orçamento + termos) | [api/app/services/auto_discovery_service.py](api/app/services/auto_discovery_service.py), [api/app/services/discovery_seed_terms.py](api/app/services/discovery_seed_terms.py) |
-| Blacklist de canais (delete + filtro) | [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py) (`delete_channel`), [api/app/services/discovery_service.py](api/app/services/discovery_service.py) (`get_blacklisted_channel_ids`) |
-| Sugestões de monitoramento (recomendar/remover) | [api/app/services/suggestions_service.py](api/app/services/suggestions_service.py), [api/app/routers/suggestions.py](api/app/routers/suggestions.py) |
-| Layout/navegação | [web/app/layout.tsx](web/app/layout.tsx), [web/components/Sidebar.tsx](web/components/Sidebar.tsx) |
+| Layout/navegação (drawer mobile) | [web/app/layout.tsx](web/app/layout.tsx), [web/components/Sidebar.tsx](web/components/Sidebar.tsx) |
 | Estilo global | [web/app/globals.css](web/app/globals.css) |
 | Dashboard | [web/app/page.tsx](web/app/page.tsx), [web/app/DashboardSyncPanel.tsx](web/app/DashboardSyncPanel.tsx) |
 | Tela de Descoberta | [web/app/descoberta/DescobertaForm.tsx](web/app/descoberta/DescobertaForm.tsx) |
@@ -199,7 +202,7 @@ yt-analise-canais-web/
 
 ---
 
-## Modelo de dados (MySQL — 11 tabelas + `alembic_version`)
+## Modelo de dados (MySQL — 12 tabelas + `alembic_version`)
 
 | Tabela | Papel |
 |---|---|
@@ -209,14 +212,17 @@ yt-analise-canais-web/
 | `video_snapshots` | Histórico de views/likes/comments/VPD/deltas por vídeo. Índice `(tracked_video_id, captured_at)` |
 | `sync_runs` | Execuções de sincronização (`type`=`manual\|scheduled`, `status`=`running\|success\|partial\|failed`, contadores, notes com erros individuais) |
 | `discovery_runs` | Buscas por termos (`filters_json`, contadores) |
-| `discovery_results_channels` | Canais encontrados numa discovery_run (score, matched_term) |
-| `discovery_results_videos` | Vídeos encontrados numa discovery_run (views, VPD, score) |
+| `discovery_results_channels` | Canais encontrados numa discovery_run (score, matched_term, `reviewed_at`, `channel_published_at`) |
+| `discovery_results_videos` | Vídeos encontrados numa discovery_run (views, VPD, score, `reviewed_at`) |
 | `tags` | Tags/nichos (name unique) — **usado na Fase 6** |
 | `channel_tags` | N:N canal↔tag |
 | `app_settings` | Config global chave/valor tipada; `is_secret=True` → `value` cifrado com Fernet |
 | `channel_blacklist` | Canais que o usuário removeu (`youtube_channel_id` UNIQUE). Discovery filtra antes de hidratar — nunca reaceita |
 
-> Total: **12 tabelas** (+ `alembic_version`). `discovery_results_channels` e `discovery_results_videos` ganharam `reviewed_at TIMESTAMP NULL` (Plano de descoberta contínua, 2026-04-25).
+> Total: **12 tabelas** (+ `alembic_version`). Migrations posteriores ao schema inicial:
+> - `59b9687df885` — `thumbnail_url` em `channels` e `tracked_videos`
+> - `56a880b51364` — tabela `channel_blacklist` + `reviewed_at` em ambos `discovery_results_*` (descoberta contínua, 2026-04-25)
+> - `d6df02f56387` — `channel_published_at` em `discovery_results_channels` (sugestões de monitoramento, 2026-04-26)
 
 **Convenções:**
 - Contagens (inscritos, views) em `BIGINT` — canais grandes ultrapassam 2B.
@@ -289,8 +295,8 @@ Carregadas via `python -m app.seed` (idempotente):
 | GET | `/api/sync/status` | `{interval_hours, next_run_at, last_run}` pro Dashboard |
 | POST | `/api/sync/run` | Dispara sync manual síncrono (`type='manual'`) |
 | GET | `/api/sync/runs?limit=` | Histórico de sync_runs (manual + scheduled) |
-| GET | `/api/analytics/overview` | Contadores por `signal` do último snapshot de cada canal + vídeos acelerando |
-| GET | `/api/analytics/channels?page=1&page_size=10` | **Bundle paginado**: canal + summary + 4 séries por página, em 1 request por página |
+| GET | `/api/analytics/overview?status=active\|paused\|removed\|all` | Contadores por `signal` do último snapshot de cada canal + vídeos acelerando. `status` filtra por `Channel.status` (default `active`) |
+| GET | `/api/analytics/channels?page=1&page_size=10&status=active` | **Bundle paginado**: canal + summary + 4 séries por página, em 1 request por página. Mesmo filtro `status` (default `active`) |
 | GET | `/api/analytics/channels/{id}/timeseries?metric=` | Série temporal (`subscribers\|views_total\|avg_vpd_recent\|uploads_per_week`) |
 | GET | `/api/analytics/channels/{id}/summary` | Totais + crescimento % 7d/30d + uploads/sem |
 | GET | `/api/analytics/niches` | Agregação por tag: channels_count, avg_subscribers, avg_vpd |
@@ -331,7 +337,7 @@ Carregadas via `python -m app.seed` (idempotente):
 
 16. **Overview analytics**: `analytics_service.overview()` agrupa pelo `signal` do **último** `ChannelSnapshot` de cada canal (subquery `MAX(captured_at)` por `channel_id`). `videos_accelerating` compara os 2 últimos `VideoSnapshot` por vídeo e conta onde `vpd[0] > vpd[1]`. Canais com snapshots anteriores à Fase 6 aparecem como `channels_unknown` até receberem novo snapshot.
 
-17. **Gráficos no frontend (paginado, 2026-04-25)**: página `/analytics` é um server component que pré-carrega só `overview` + `niches` (não busca mais a lista de canais via `/api/monitoring/channels`). `AnalyticsView` (client) faz **1 request por página** em `GET /api/analytics/channels?page=...&page_size=...` que devolve um `PaginatedChannelAnalytics` com bundle agregado (canal + summary + 4 séries). Substituiu o modelo anterior de `5N requests` (5 fetches paralelos por canal × N canais) que derrubava o site quando havia muitos canais. Service `channels_paginated()` em [api/app/services/analytics_service.py](api/app/services/analytics_service.py) reusa `channel_summary` e `timeseries`. UI tem `Anterior` / `Próxima`, seletor 10/20/50 e contador. Endpoints unitários (`/summary`, `/timeseries`) **mantidos** para reuso futuro/depuração — só a tela principal não depende mais deles em massa. Skeleton dimensionado pela `page_size`, não pelo total de canais.
+17. **Gráficos no frontend (paginado + filtro de status, 2026-04-25/26)**: página `/analytics` é um server component que pré-carrega só `niches` (overview foi pro client porque agora depende do filtro de status). `AnalyticsView` (client) tem barra de tabs `Ativos / Pausados / Removidos / Todos` (default `active`) e dispara em paralelo `GET /api/analytics/overview?status=...` + `GET /api/analytics/channels?page=...&page_size=...&status=...` a cada mudança de filtro/página. O endpoint de canais devolve um `PaginatedChannelAnalytics` com bundle agregado (canal + summary + 4 séries) — substituiu o modelo anterior de `5N requests` que derrubava o site. Filtragem central em `_filter_channel_ids_by_status()` ([api/app/services/analytics_service.py](api/app/services/analytics_service.py)) — overview e listagem aplicam a mesma regra (consistência). Trocar de filtro reseta para a página 1. Endpoints unitários (`/summary`, `/timeseries`) **mantidos** para reuso futuro/depuração. Skeleton dimensionado pela `page_size`, não pelo total de canais.
 
 18. **Feedback global** (Fase 7): qualquer ação (sync manual, snapshot, salvar config, adicionar canal/vídeo, busca) que antes mostrava erro/sucesso inline agora dispara um toast via `useToast()` do `<ToasterProvider>` montado em [web/app/layout.tsx](web/app/layout.tsx). Handlers de erro chamam `toast.error(msg)` e re-lançam quando o caller precisa reagir (ex.: `ConfiguracoesForm.save` re-lança pra o `SecretInput` saber que não deve fechar o editor). `AnalyticsView` usa `<ErrorCard>` com botão "Tentar de novo" porque o erro de carga inicial precisa de permanência, não um toast efêmero.
 
@@ -393,6 +399,8 @@ Carregadas via `python -m app.seed` (idempotente):
 41. **Responsividade real** (2026-04-25, Plano A + Plano B): a aplicação não é mais desktop-only.
     - **Plano A (shell + breakpoints)**: [web/components/Sidebar.tsx](web/components/Sidebar.tsx) virou drawer mobile com botão hambúrguer fixed, ESC fecha, troca de rota fecha, click no overlay fecha, `body { overflow: hidden }` enquanto aberto. [web/app/globals.css](web/app/globals.css) tem 3 breakpoints reais: ≤1024 (sidebar 200px, padding reduzido, analytics-overview 2 col), ≤768 (sidebar fixed transformX, hambúrguer aparece, `.main` ganha padding-top 64px, tabs roláveis horizontalmente, filter-bar quebra em linhas, row-actions com tap target ≥36px, tabelas com `overflow-x: auto` + paddings reduzidos, toaster ancorado no rodapé largura quase total, card-grid 1 col, video-grid `minmax(220px,1fr)`), ≤480 (tipografia menor, botões 36px+, bulk-actions empilhada com botões 38px+). Bulk-actions já empilha em ≤600.
     - **Plano B (cards stackados em `/monitoramento`)**: hook [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) usa `matchMedia` (default ≤768), SSR-safe. `MonitoramentoView` renderiza **dois blocos** por aba — `desktop-only` (tabela existente) e `mobile-only` (lista de `.mobile-card`). Cards têm header (checkbox + avatar + título + status), grid 2x2 de meta, ações row, e uma toolbar acima com "Selecionar todos / Desmarcar todos" + contador. `ChannelsFilterBar` ganhou `showSortDropdown` espelhando o que `VideosFilterBar` já tinha — em mobile ambos mostram select de ordenação inline. Aba Vídeos > grid já era responsiva, não foi tocada. Estado e handlers de seleção/bulk **reaproveitados** sem duplicação. Outras telas (`/dashboard`, `/descoberta`, `/runs`, `/configuracoes`) já usam grids responsivos (`card-grid`, `form-grid`, `settings-row`) e `.table-wrap` com `overflow-x` — sem intervenção pontual necessária. **Validação visual em 360/390/768/1024 é responsabilidade do usuário** (a IA não testa visual).
+
+42. **Descoberta visual + indisponibilidade persistente** (2026-04-26): a migration [`api/migrations/versions/1f7c9e4b2d11_add_discovery_thumbnails_and_video_unavailable.py`](api/migrations/versions/1f7c9e4b2d11_add_discovery_thumbnails_and_video_unavailable.py) adicionou `thumbnail_url` em `discovery_results_channels` e `discovery_results_videos`, além de `tracked_videos.unavailable_reason` e `tracked_videos.unavailable_since`. O [`api/app/services/discovery_service.py`](api/app/services/discovery_service.py) agora persiste thumb de canal via `pick_thumbnail(snippet)` e thumb de vídeo com fallback previsível `i.ytimg.com/vi/.../hqdefault.jpg`; [`web/app/descoberta/DescobertaForm.tsx`](web/app/descoberta/DescobertaForm.tsx) reaproveita [`web/components/ChannelAvatar.tsx`](web/components/ChannelAvatar.tsx) e [`web/components/VideoThumbnail.tsx`](web/components/VideoThumbnail.tsx) para renderizar isso na tabela. Para itens removidos/privados, [`api/app/services/monitoring_service.py`](api/app/services/monitoring_service.py) marca canal como `status='removed'` com `notes` auditável e põe o `youtube_channel_id` na blacklist; vídeos passam a gravar `unavailable_reason`/`unavailable_since`. [`api/app/services/sync_service.py`](api/app/services/sync_service.py) trata esses casos como nota informativa, sem manter `partial` recorrente.
 
 ---
 
@@ -478,8 +486,8 @@ URLs: Dashboard <http://localhost:3000>, Swagger <http://localhost:8000/docs>.
 - **Auto-discovery em base nova/sem canais**: a derivação de termos depende de já haver `Channel` ou `DiscoveryResultChannel` no banco. Em base zerada, os primeiros runs usam só termos seed — esperado, vai melhorar conforme aparecem canais.
 - **Notificações do navegador só com aba aberta**: a Notification API atual NÃO entrega em background. Pra entrega real (PWA / Web Push), precisa Service Worker + backend de push com VAPID keys + persistência de subscriptions — é tarefa separada não implementada.
 - **Bulk endpoints antigos seguem expostos**: `/api/monitoring/{channels,videos}/bulk-snapshot` ainda existem mas a UI principal não usa mais (substituído pelo `runItemizedSnapshot`). Mantido por compat com qualquer script CLI; remover só se confirmar que ninguém depende.
-- **Migration `d6df02f56387` precisa rodar em prod**: adiciona `discovery_results_channels.channel_published_at` (necessária pra "Sugestões → Recomendados para monitorar" funcionar) e seed adiciona 4 settings `suggestions.*`. Após deploy do `-api`, rodar `alembic upgrade head` + `python -m app.seed` no shell EasyPanel. Sem isso, a aba Sugestões aparece mas a lista "Recomendados" fica vazia (filtro exige `channel_published_at IS NOT NULL`).
-- **Sugestões dependem de canais re-descobertos**: registros pré-migration `d6df02f56387` em `discovery_results_channels` não têm `channel_published_at` populado (NULL). O auto-discovery re-popula naturalmente conforme re-encontra os canais. Em base nova, primeiros runs já gravam corretamente.
+- **Toda migration nova exige `alembic upgrade head` + `python -m app.seed` no shell do `-api` em prod após o deploy**: o container não roda automaticamente. Padrão: abrir EasyPanel → `youtube-analyzer-api` → `>_` (Console) → colar os 2 comandos. Migrations atuais aplicáveis em prod: `d69d8c5c7a0e`, `59b9687df885`, `56a880b51364`, `d6df02f56387`. A última (`d6df02f56387`) é necessária pra "Sugestões → Recomendados para monitorar" funcionar — se faltar, a lista fica vazia (filtro exige `channel_published_at IS NOT NULL`).
+- **Sugestões "para monitorar" dependem de canais re-descobertos pós-2026-04-26**: registros antigos de `discovery_results_channels` ficaram com `channel_published_at=NULL` e não aparecem na lista até o auto-discovery re-encontrá-los. Em base nova, primeiros runs já gravam corretamente.
 
 ---
 
@@ -489,3 +497,4 @@ URLs: Dashboard <http://localhost:3000>, Swagger <http://localhost:8000/docs>.
 - **Git commit/push/deploy**: proibido sem pedido explícito via chat. Autorização anterior não vale pra próxima execução.
 - **Credenciais**: nunca commitar `.env` real. `.gitignore` cobre `**/.env` com exceção para `.env.example`. Conferir com `git check-ignore -v api/.env`.
 - **Coordenação multi-IA**: ao editar `!projeto.md` ou `!executar.md`, adicionar `AGUARDE ALTERANDO` na primeira linha; remover ao terminar.
+

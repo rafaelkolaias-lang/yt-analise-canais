@@ -100,6 +100,7 @@ export type ResultChannel = {
   youtube_channel_id: string;
   title: string;
   url: string | null;
+  thumbnail_url: string | null;
   subscribers: number | null;
   views_total: number | null;
   video_count: number | null;
@@ -113,6 +114,7 @@ export type ResultVideo = {
   youtube_channel_id: string | null;
   title: string;
   url: string | null;
+  thumbnail_url: string | null;
   views: number | null;
   likes: number | null;
   duration_seconds: number | null;
@@ -196,6 +198,7 @@ export type MonitoredChannel = {
   custom_url: string | null;
   thumbnail_url: string | null;
   status: string;
+  notes: string | null;
   is_active: boolean;
   source: string | null;
   created_at: string;
@@ -217,6 +220,10 @@ export type MonitoredVideo = {
   title: string;
   url: string | null;
   thumbnail_url: string | null;
+  unavailable_reason: string | null;
+  unavailable_since: string | null;
+  channel_title: string | null;
+  channel_url: string | null;
   status: string;
   tracking_source: string | null;
   first_tracked_at: string;

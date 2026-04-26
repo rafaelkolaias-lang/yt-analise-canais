@@ -26,9 +26,11 @@ from app.models import (
 )
 from app.services import settings_reader, youtube_client
 from app.services.discovery_service import (
+    build_video_thumbnail_url,
     compute_vpd,
     parse_iso_dt,
     parse_iso8601_duration,
+    pick_thumbnail,
 )
 
 
@@ -45,6 +47,60 @@ def _pick_thumbnail(snippet: dict) -> Optional[str]:
     return None
 
 
+class PermanentlyUnavailableError(RuntimeError):
+    """Item tratado como indisponivel permanente e removido do retry."""
+
+
+class ChannelUnavailableError(PermanentlyUnavailableError):
+    pass
+
+
+class VideoUnavailableError(PermanentlyUnavailableError):
+    pass
+
+
+def _upsert_blacklist(db: Session, youtube_channel_id: str, reason: str) -> None:
+    existing = (
+        db.query(ChannelBlacklist).filter_by(youtube_channel_id=youtube_channel_id).one_or_none()
+    )
+    if existing is None:
+        db.add(ChannelBlacklist(youtube_channel_id=youtube_channel_id, reason=reason))
+    elif not existing.reason:
+        existing.reason = reason
+
+
+def _mark_channel_unavailable(db: Session, channel: Channel, reason: str) -> str:
+    message = (
+        f"Canal indisponivel/removido no YouTube. "
+        f"Canal: {channel.title}. URL: {channel.url or '-'} . "
+        f"ID: {channel.youtube_channel_id}. Motivo: {reason}"
+    )[:2000]
+    channel.status = "removed"
+    channel.is_active = False
+    channel.notes = message
+    _upsert_blacklist(db, channel.youtube_channel_id, "youtube_unavailable")
+    for tracked in channel.tracked_videos:
+        tracked.status = "removed"
+        tracked.unavailable_reason = "channel_unavailable"
+        tracked.unavailable_since = datetime.utcnow()
+    db.commit()
+    return message
+
+
+def _mark_video_unavailable(db: Session, video: TrackedVideo, reason: str) -> str:
+    message = (
+        f"Video indisponivel/removido no YouTube. "
+        f"Canal: {video.channel.title if video.channel else '-'} . "
+        f"URL: {video.url or '-'} . "
+        f"ID: {video.youtube_video_id}. Motivo: {reason}"
+    )[:2000]
+    video.status = "removed"
+    video.unavailable_reason = "video_unavailable"
+    video.unavailable_since = datetime.utcnow()
+    db.commit()
+    return message
+
+
 def _get_or_create_channel_from_youtube(
     db: Session, yt_channel_id: str, client: Optional[youtube_client.YouTubeClient] = None
 ) -> Channel:
@@ -55,7 +111,9 @@ def _get_or_create_channel_from_youtube(
     yt_client = client or youtube_client.build_from_db(db)
     items = yt_client.channels_by_ids([yt_channel_id])
     if not items:
-        raise ValueError(f"Canal {yt_channel_id} não encontrado no YouTube.")
+        raise ChannelUnavailableError(
+            f"Canal {yt_channel_id} indisponivel no YouTube ao tentar cadastrar."
+        )
     c = items[0]
     snippet = c.get("snippet", {}) or {}
 
@@ -64,7 +122,7 @@ def _get_or_create_channel_from_youtube(
         title=(snippet.get("title") or "")[:255] or yt_channel_id,
         url=f"https://www.youtube.com/channel/{yt_channel_id}",
         custom_url=(snippet.get("customUrl") or "")[:255] or None,
-        thumbnail_url=_pick_thumbnail(snippet),
+        thumbnail_url=pick_thumbnail(snippet),
         status="active",
         source="discovery",
         is_active=True,
@@ -87,9 +145,11 @@ def add_video(db: Session, yt_video_id: str) -> TrackedVideo:
     """
     client = youtube_client.build_from_db(db)
     videos = client.videos_by_ids([yt_video_id])
-    if not videos:
-        raise ValueError(f"Vídeo {yt_video_id} não encontrado no YouTube.")
 
+    if not videos:
+        raise VideoUnavailableError(
+            f"Video {yt_video_id} indisponivel no YouTube ao tentar cadastrar."
+        )
     v = videos[0]
     snippet = v.get("snippet", {}) or {}
     yt_channel_id = snippet.get("channelId")
@@ -111,7 +171,7 @@ def add_video(db: Session, yt_video_id: str) -> TrackedVideo:
         youtube_video_id=yt_video_id,
         title=(snippet.get("title") or "")[:512] or yt_video_id,
         url=f"https://www.youtube.com/watch?v={yt_video_id}",
-        thumbnail_url=_pick_thumbnail(snippet),
+        thumbnail_url=pick_thumbnail(snippet) or build_video_thumbnail_url(yt_video_id),
         tracking_source="discovery",
         status="active",
         first_tracked_at=datetime.utcnow(),
@@ -168,16 +228,7 @@ def delete_channel(db: Session, channel_id: int) -> None:
     yt_id = channel.youtube_channel_id
     db.delete(channel)
 
-    existing = (
-        db.query(ChannelBlacklist).filter_by(youtube_channel_id=yt_id).one_or_none()
-    )
-    if existing is None:
-        db.add(
-            ChannelBlacklist(
-                youtube_channel_id=yt_id,
-                reason="user_removed",
-            )
-        )
+    _upsert_blacklist(db, yt_id, "user_removed")
 
     db.commit()
 
@@ -256,7 +307,7 @@ def _accumulate_best_video(
         youtube_video_id=yt_video_id,
         title=(snippet.get("title") or "")[:512] or yt_video_id,
         url=f"https://www.youtube.com/watch?v={yt_video_id}",
-        thumbnail_url=_pick_thumbnail(snippet),
+        thumbnail_url=pick_thumbnail(snippet) or build_video_thumbnail_url(yt_video_id),
         tracking_source="best_from_channel",
         status="active",
         first_tracked_at=datetime.utcnow(),
@@ -381,7 +432,13 @@ def snapshot_channel(db: Session, channel_id: int, sample_size: int = 10) -> Cha
     # 1) estado atual do canal
     ch_items = client.channels_by_ids([channel.youtube_channel_id])
     if not ch_items:
-        raise ValueError(f"Canal {channel.youtube_channel_id} não encontrado no YouTube.")
+        raise ChannelUnavailableError(
+            _mark_channel_unavailable(
+                db,
+                channel,
+                "channels.list nao retornou o canal; provavelmente removido, privado ou inexistente.",
+            )
+        )
     c = ch_items[0]
     stats = c.get("statistics") or {}
     subscribers = None
@@ -392,7 +449,7 @@ def snapshot_channel(db: Session, channel_id: int, sample_size: int = 10) -> Cha
 
     # Atualiza thumbnail (canal pode trocar avatar) — sem custo de quota extra,
     # já temos os dados do channels.list aqui.
-    new_thumb = _pick_thumbnail(c.get("snippet") or {})
+    new_thumb = pick_thumbnail(c.get("snippet") or {})
     if new_thumb and new_thumb != channel.thumbnail_url:
         channel.thumbnail_url = new_thumb
 
@@ -478,7 +535,13 @@ def snapshot_video(db: Session, tracked_video_id: int) -> VideoSnapshot:
     client = youtube_client.build_from_db(db)
     items = client.videos_by_ids([tv.youtube_video_id])
     if not items:
-        raise ValueError(f"Vídeo {tv.youtube_video_id} não encontrado no YouTube.")
+        raise VideoUnavailableError(
+            _mark_video_unavailable(
+                db,
+                tv,
+                "videos.list nao retornou o video; provavelmente removido, privado ou inexistente.",
+            )
+        )
     v = items[0]
     stats = v.get("statistics") or {}
     snippet = v.get("snippet") or {}
@@ -517,7 +580,7 @@ def snapshot_video(db: Session, tracked_video_id: int) -> VideoSnapshot:
     tv.last_seen_at = datetime.utcnow()
     if tv.first_tracked_vpd is None:
         tv.first_tracked_vpd = vpd
-    new_thumb = _pick_thumbnail(snippet)
+    new_thumb = pick_thumbnail(snippet) or build_video_thumbnail_url(tv.youtube_video_id)
     if new_thumb and new_thumb != tv.thumbnail_url:
         tv.thumbnail_url = new_thumb
 

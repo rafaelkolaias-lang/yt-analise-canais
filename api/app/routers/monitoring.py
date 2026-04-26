@@ -75,6 +75,7 @@ def _channel_with_stats(db: Session, c: Channel) -> ChannelWithStats:
         custom_url=c.custom_url,
         thumbnail_url=c.thumbnail_url,
         status=c.status,
+        notes=c.notes,
         is_active=c.is_active,
         source=c.source,
         created_at=c.created_at,
@@ -89,6 +90,28 @@ def _channel_with_stats(db: Session, c: Channel) -> ChannelWithStats:
     )
 
 
+def _video_read(tv: TrackedVideo) -> TrackedVideoRead:
+    return TrackedVideoRead(
+        id=tv.id,
+        channel_id=tv.channel_id,
+        youtube_video_id=tv.youtube_video_id,
+        title=tv.title,
+        url=tv.url,
+        thumbnail_url=tv.thumbnail_url,
+        unavailable_reason=tv.unavailable_reason,
+        unavailable_since=tv.unavailable_since,
+        channel_title=tv.channel.title if tv.channel else None,
+        channel_url=tv.channel.url if tv.channel else None,
+        status=tv.status,
+        tracking_source=tv.tracking_source,
+        first_tracked_at=tv.first_tracked_at,
+        first_tracked_vpd=tv.first_tracked_vpd,
+        last_seen_vpd=tv.last_seen_vpd,
+        last_seen_views=tv.last_seen_views,
+        last_seen_at=tv.last_seen_at,
+    )
+
+
 @router.get("/channels", response_model=list[ChannelWithStats])
 def list_channels(db: Session = Depends(get_db)) -> list[ChannelWithStats]:
     rows = db.query(Channel).order_by(Channel.created_at.desc()).all()
@@ -99,6 +122,8 @@ def list_channels(db: Session = Depends(get_db)) -> list[ChannelWithStats]:
 def add_channel(req: AddChannelRequest, db: Session = Depends(get_db)) -> ChannelRead:
     try:
         return monitoring_service.add_channel(db, req.youtube_channel_id)
+    except monitoring_service.PermanentlyUnavailableError as exc:
+        raise HTTPException(status.HTTP_410_GONE, detail=str(exc))
     except youtube_client.NoAPIKeyConfigured as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except ValueError as exc:
@@ -166,6 +191,8 @@ def snapshot_channel(channel_id: int, db: Session = Depends(get_db)) -> ChannelS
         return monitoring_service.snapshot_channel(db, channel_id)
     except LookupError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except monitoring_service.PermanentlyUnavailableError as exc:
+        raise HTTPException(status.HTTP_410_GONE, detail=str(exc))
     except youtube_client.NoAPIKeyConfigured as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except ValueError as exc:
@@ -174,7 +201,7 @@ def snapshot_channel(channel_id: int, db: Session = Depends(get_db)) -> ChannelS
 
 @router.get("/channels/{channel_id}/best-videos", response_model=list[TrackedVideoRead])
 def channel_best_videos(channel_id: int, db: Session = Depends(get_db)) -> list[TrackedVideoRead]:
-    return monitoring_service.list_best_videos_for_channel(db, channel_id)
+    return [_video_read(row) for row in monitoring_service.list_best_videos_for_channel(db, channel_id)]
 
 
 # ---------------------------------------------------------------------------
@@ -182,13 +209,16 @@ def channel_best_videos(channel_id: int, db: Session = Depends(get_db)) -> list[
 # ---------------------------------------------------------------------------
 @router.get("/videos", response_model=list[TrackedVideoRead])
 def list_videos(db: Session = Depends(get_db)) -> list[TrackedVideoRead]:
-    return db.query(TrackedVideo).order_by(TrackedVideo.first_tracked_at.desc()).all()
+    rows = db.query(TrackedVideo).order_by(TrackedVideo.first_tracked_at.desc()).all()
+    return [_video_read(row) for row in rows]
 
 
 @router.post("/videos", response_model=TrackedVideoRead, status_code=status.HTTP_201_CREATED)
 def add_video(req: AddVideoRequest, db: Session = Depends(get_db)) -> TrackedVideoRead:
     try:
-        return monitoring_service.add_video(db, req.youtube_video_id)
+        return _video_read(monitoring_service.add_video(db, req.youtube_video_id))
+    except monitoring_service.PermanentlyUnavailableError as exc:
+        raise HTTPException(status.HTTP_410_GONE, detail=str(exc))
     except youtube_client.NoAPIKeyConfigured as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except ValueError as exc:
@@ -230,7 +260,7 @@ def update_video_status(
     video_id: int, req: StatusUpdateRequest, db: Session = Depends(get_db)
 ) -> TrackedVideoRead:
     try:
-        return monitoring_service.set_video_status(db, video_id, req.status)
+        return _video_read(monitoring_service.set_video_status(db, video_id, req.status))
     except LookupError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
@@ -255,6 +285,8 @@ def snapshot_video(video_id: int, db: Session = Depends(get_db)) -> VideoSnapsho
         return monitoring_service.snapshot_video(db, video_id)
     except LookupError as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc))
+    except monitoring_service.PermanentlyUnavailableError as exc:
+        raise HTTPException(status.HTTP_410_GONE, detail=str(exc))
     except youtube_client.NoAPIKeyConfigured as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except ValueError as exc:

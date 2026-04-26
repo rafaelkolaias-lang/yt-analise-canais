@@ -954,6 +954,11 @@ export function MonitoramentoView({
                           {c.custom_url && (
                             <div className="muted" style={{ fontSize: 10 }}>{c.custom_url}</div>
                           )}
+                          {c.status === "removed" && c.notes && (
+                            <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                              {c.notes}
+                            </div>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -1120,6 +1125,12 @@ export function MonitoramentoView({
                             {formatDateShort(c.last_snapshot_at)}
                           </span>
                         </div>
+                        {c.status === "removed" && c.notes && (
+                          <div style={{ gridColumn: "1 / -1" }}>
+                            <span className="label">Contexto</span>
+                            <span className="value">{c.notes}</span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="mobile-card-actions">
@@ -1397,6 +1408,23 @@ export function MonitoramentoView({
                             >
                               {v.title}
                             </a>
+                            {v.channel_title && (
+                              <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                                canal: 
+                                {v.channel_url ? (
+                                  <a href={v.channel_url} target="_blank" rel="noreferrer">
+                                    {v.channel_title}
+                                  </a>
+                                ) : (
+                                  v.channel_title
+                                )}
+                              </div>
+                            )}
+                            {v.unavailable_reason && (
+                              <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                                indisponivel desde {formatDateShort(v.unavailable_since)} ({v.unavailable_reason})
+                              </div>
+                            )}
                           </div>
                         </td>
                         <td><StatusPill status={v.status} /></td>
@@ -1503,6 +1531,23 @@ export function MonitoramentoView({
                             {v.title}
                           </a>
                           <StatusPill status={v.status} />
+                          {v.channel_title && (
+                            <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                              canal: 
+                              {v.channel_url ? (
+                                <a href={v.channel_url} target="_blank" rel="noreferrer">
+                                  {v.channel_title}
+                                </a>
+                              ) : (
+                                v.channel_title
+                              )}
+                            </div>
+                          )}
+                          {v.unavailable_reason && (
+                            <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                              indisponivel desde {formatDateShort(v.unavailable_since)} ({v.unavailable_reason})
+                            </div>
+                          )}
                         </div>
                       </div>
 
@@ -1548,6 +1593,14 @@ export function MonitoramentoView({
                             {formatDateShort(v.last_seen_at)}
                           </span>
                         </div>
+                        {v.unavailable_reason && (
+                          <div style={{ gridColumn: "1 / -1" }}>
+                            <span className="label">Contexto</span>
+                            <span className="value">
+                              indisponivel desde {formatDateShort(v.unavailable_since)} ({v.unavailable_reason})
+                            </span>
+                          </div>
+                        )}
                       </div>
 
                       <div className="mobile-card-actions">
@@ -1627,6 +1680,18 @@ export function MonitoramentoView({
                       >
                         {v.title}
                       </a>
+                      {v.channel_title && (
+                        <span className="muted" style={{ fontSize: 11 }}>
+                          canal: 
+                          {v.channel_url ? (
+                            <a href={v.channel_url} target="_blank" rel="noreferrer">
+                              {v.channel_title}
+                            </a>
+                          ) : (
+                            v.channel_title
+                          )}
+                        </span>
+                      )}
                       <div className="video-card-meta">
                         <StatusPill status={v.status} />
                         <span className="muted" style={{ fontSize: 11 }}>
@@ -1647,6 +1712,11 @@ export function MonitoramentoView({
                             </>
                           )}
                         </span>
+                        {v.unavailable_reason && (
+                          <span className="muted" style={{ fontSize: 11 }}>
+                            indisponivel desde {formatDateShort(v.unavailable_since)}
+                          </span>
+                        )}
                       </div>
                       <div className="row-actions" style={{ marginTop: 8 }}>
                         <button

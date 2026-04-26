@@ -44,6 +44,7 @@ class ChannelRead(BaseModel):
     custom_url: Optional[str] = None
     thumbnail_url: Optional[str] = None
     status: str
+    notes: Optional[str] = None
     is_active: bool
     source: Optional[str] = None
     created_at: datetime
@@ -70,6 +71,10 @@ class TrackedVideoRead(BaseModel):
     title: str
     url: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    unavailable_reason: Optional[str] = None
+    unavailable_since: Optional[datetime] = None
+    channel_title: Optional[str] = None
+    channel_url: Optional[str] = None
     status: str
     tracking_source: Optional[str] = None
     first_tracked_at: datetime

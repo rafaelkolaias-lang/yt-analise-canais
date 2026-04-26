@@ -125,6 +125,8 @@ class TrackedVideo(Base):
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     url: Mapped[Optional[str]] = mapped_column(String(512))
     thumbnail_url: Mapped[Optional[str]] = mapped_column(String(512))
+    unavailable_reason: Mapped[Optional[str]] = mapped_column(String(64))
+    unavailable_since: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
     tracking_source: Mapped[Optional[str]] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
@@ -232,6 +234,7 @@ class DiscoveryResultChannel(Base):
     youtube_channel_id: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     url: Mapped[Optional[str]] = mapped_column(String(512))
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(512))
 
     subscribers: Mapped[Optional[int]] = mapped_column(BigInteger)
     views_total: Mapped[Optional[int]] = mapped_column(BigInteger)
@@ -267,6 +270,7 @@ class DiscoveryResultVideo(Base):
     youtube_channel_id: Mapped[Optional[str]] = mapped_column(String(32))
     title: Mapped[str] = mapped_column(String(512), nullable=False)
     url: Mapped[Optional[str]] = mapped_column(String(512))
+    thumbnail_url: Mapped[Optional[str]] = mapped_column(String(512))
 
     views: Mapped[Optional[int]] = mapped_column(BigInteger)
     likes: Mapped[Optional[int]] = mapped_column(BigInteger)

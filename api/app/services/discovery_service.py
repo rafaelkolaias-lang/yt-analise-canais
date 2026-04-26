@@ -33,6 +33,13 @@ def get_blacklisted_channel_ids(db: Session) -> set[str]:
     return {r[0] for r in rows}
 
 
+def build_video_thumbnail_url(youtube_video_id: str | None) -> Optional[str]:
+    """Thumbnail previsivel de video quando a API nao vier com uma melhor."""
+    if not youtube_video_id:
+        return None
+    return f"https://i.ytimg.com/vi/{youtube_video_id}/hqdefault.jpg"
+
+
 @dataclass
 class DiscoveryFilters:
     terms: list[str]
@@ -81,6 +88,18 @@ def compute_vpd(views: int, published_at: Optional[datetime]) -> float:
     age = datetime.now(timezone.utc) - published_at
     days = max(age.total_seconds() / 86400.0, 1.0)
     return round(views / days, 2)
+
+
+def pick_thumbnail(snippet: dict) -> Optional[str]:
+    """Pega a maior thumbnail disponivel de um snippet do YouTube."""
+    if not isinstance(snippet, dict):
+        return None
+    thumbs = snippet.get("thumbnails") or {}
+    for key in ("high", "medium", "default"):
+        item = thumbs.get(key)
+        if isinstance(item, dict) and item.get("url"):
+            return str(item["url"])[:512]
+    return None
 
 
 def load_default_filters(db: Session) -> dict:
@@ -205,6 +224,7 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
                     youtube_channel_id=snippet.get("channelId"),
                     title=(snippet.get("title") or "")[:512],
                     url=f"https://www.youtube.com/watch?v={v.get('id')}",
+                    thumbnail_url=pick_thumbnail(snippet) or build_video_thumbnail_url(v.get("id")),
                     views=views,
                     likes=likes,
                     duration_seconds=duration_s,
@@ -229,6 +249,7 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
                     youtube_channel_id=ch_id,
                     title=(c_snippet.get("title") or "")[:255],
                     url=f"https://www.youtube.com/channel/{ch_id}",
+                    thumbnail_url=pick_thumbnail(c_snippet),
                     subscribers=subs,
                     views_total=views_total,
                     video_count=video_count,

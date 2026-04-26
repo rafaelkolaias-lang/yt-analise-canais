@@ -57,6 +57,11 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
             try:
                 monitoring_service.snapshot_channel(db, ch.id)
                 channels_processed += 1
+            except monitoring_service.PermanentlyUnavailableError as exc:
+                channels_processed += 1
+                msg = f"info: canal removido tratado: {exc}"
+                log.info("sync indisponibilidade persistente: %s", msg)
+                errors.append(msg)
             except Exception as exc:
                 msg = f"canal id={ch.id} ({ch.title[:40]}): {exc}"
                 log.warning("sync falha: %s", msg)
@@ -69,6 +74,11 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
             try:
                 monitoring_service.snapshot_video(db, tv.id)
                 videos_processed += 1
+            except monitoring_service.PermanentlyUnavailableError as exc:
+                videos_processed += 1
+                msg = f"info: video removido tratado: {exc}"
+                log.info("sync indisponibilidade persistente: %s", msg)
+                errors.append(msg)
             except Exception as exc:
                 msg = f"video id={tv.id}: {exc}"
                 log.warning("sync falha: %s", msg)
@@ -76,9 +86,11 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
 
         run.channels_processed = channels_processed
         run.videos_processed = videos_processed
-        run.status = "success" if not errors else "partial"
+        blocking_errors = [msg for msg in errors if not msg.startswith("info: ")]
+        info_notes = [msg[6:] for msg in errors if msg.startswith("info: ")]
+        run.status = "success" if not blocking_errors else "partial"
         if errors:
-            run.notes = "; ".join(errors)[:2000]
+            run.notes = "; ".join(info_notes + blocking_errors)[:2000]
         run.finished_at = datetime.utcnow()
         db.commit()
         db.refresh(run)

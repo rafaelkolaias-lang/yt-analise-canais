@@ -107,6 +107,30 @@ DEFAULT_SETTINGS: list[dict] = [
         "value_type": "float",
         "description": "Multiplicador de vpd_saturation para considerar VPD alto em canal pequeno.",
     },
+    {
+        "key": "analytics.recent_uploads_sample_size",
+        "value": "5",
+        "value_type": "int",
+        "description": "Quantidade de uploads recentes usados no Analytics para medir mediana de views.",
+    },
+    {
+        "key": "analytics.breakout_max_subscribers",
+        "value": "10000",
+        "value_type": "int",
+        "description": "Máximo de inscritos para marcar um canal como breakout precoce no Analytics.",
+    },
+    {
+        "key": "analytics.breakout_min_median_views",
+        "value": "50000",
+        "value_type": "int",
+        "description": "Mediana mínima de views recentes para um canal pequeno virar breakout no Analytics.",
+    },
+    {
+        "key": "analytics.breakout_views_to_subs_ratio",
+        "value": "5",
+        "value_type": "float",
+        "description": "Razão mínima entre mediana de views recentes e inscritos para breakout precoce.",
+    },
     # -------------------------------------------------------------
     # API keys YouTube (cifradas quando definidas pelo usuário)
     # Aqui apenas cria o registro vazio — a tela de Configurações
@@ -124,6 +148,20 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "10000",
         "value_type": "int",
         "description": "Cota diária por API key do YouTube.",
+    },
+    # Estado persistido de consumo de quota — usado pela central de
+    # notificações para mostrar o uso agregado das keys. Atualizado pelo
+    # `youtube_client._get` a cada request bem-sucedida e zerado quando
+    # `date_utc` < hoje (rollover diário em UTC, pra casar com o reset do
+    # YouTube). Formato:
+    #   {"date_utc": "YYYY-MM-DD",
+    #    "used_per_key": [123, 0, ...],
+    #    "last_event": {"at": ISO, "label": "...", "cost": N, "key_index": K} | null}
+    {
+        "key": "youtube.quota_usage_today",
+        "value": None,
+        "value_type": "json",
+        "description": "Estado persistido de consumo da cota diária do YouTube por API key (rollover diário UTC).",
     },
     # -------------------------------------------------------------
     # Discovery automática (rodada após cada sync)
@@ -173,6 +211,36 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "60",
         "value_type": "int",
         "description": "Idade máxima do canal (em dias desde a criação) para ser SUGERIDO para monitoramento.",
+    },
+    {
+        "key": "suggestions.monitor_breakout_max_subscribers",
+        "value": "10000",
+        "value_type": "int",
+        "description": "Máximo de inscritos para sinalizar canal recém-criado com vídeo desproporcional nas sugestões.",
+    },
+    {
+        "key": "suggestions.monitor_breakout_max_age_days",
+        "value": "30",
+        "value_type": "int",
+        "description": "Idade máxima do canal para a regra de breakout precoce nas sugestões.",
+    },
+    {
+        "key": "suggestions.monitor_breakout_max_video_count",
+        "value": "3",
+        "value_type": "int",
+        "description": "Máximo de vídeos totais no canal para considerar breakout precoce nas sugestões.",
+    },
+    {
+        "key": "suggestions.monitor_breakout_min_views",
+        "value": "50000",
+        "value_type": "int",
+        "description": "Views mínimas do melhor vídeo descoberto para marcar breakout precoce nas sugestões.",
+    },
+    {
+        "key": "suggestions.monitor_breakout_min_vpd",
+        "value": "2000",
+        "value_type": "int",
+        "description": "VPD mínimo do melhor vídeo descoberto para breakout precoce nas sugestões.",
     },
     {
         "key": "suggestions.dead_min_days_no_uploads",

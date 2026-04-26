@@ -1879,7 +1879,7 @@ function SuggestionsToMonitor({
         <h3 style={{ margin: 0, fontSize: 14 }}>
           Recomendados para monitorar{" "}
           <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>
-            (canais novos com VPD alto, ainda fora do monitoramento)
+            (canais novos com VPD alto ou breakout precoce, ainda fora do monitoramento)
           </span>
         </h3>
       </header>
@@ -1898,6 +1898,7 @@ function SuggestionsToMonitor({
                 <th>Canal</th>
                 <th style={{ textAlign: "right" }}>Inscritos</th>
                 <th style={{ textAlign: "right" }}>VPD recente</th>
+                <th style={{ textAlign: "right" }}>Top vídeo</th>
                 <th>Por que</th>
                 <th style={{ width: 140 }}></th>
               </tr>
@@ -1906,17 +1907,47 @@ function SuggestionsToMonitor({
               {items.map((s) => (
                 <tr key={s.youtube_channel_id}>
                   <td>
-                    <a href={s.url ?? "#"} target="_blank" rel="noreferrer">
-                      {s.title}
-                    </a>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <ChannelAvatar url={s.thumbnail_url} title={s.title} size={32} />
+                      <div style={{ minWidth: 0 }}>
+                        <a href={s.url ?? "#"} target="_blank" rel="noreferrer">
+                          {s.title}
+                        </a>
+                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                          {s.suggestion_kind === "early_breakout"
+                            ? "breakout precoce"
+                            : s.suggestion_kind === "mixed"
+                            ? "breakout + VPD alto"
+                            : "canal jovem com VPD alto"}
+                        </div>
+                      </div>
+                    </div>
                   </td>
                   <td style={{ textAlign: "right" }}>
                     {s.subscribers != null ? s.subscribers.toLocaleString("pt-BR") : "—"}
                   </td>
                   <td style={{ textAlign: "right" }}>
                     {s.avg_vpd_recent != null
-                      ? Math.round(s.avg_vpd_recent).toLocaleString("pt-BR")
-                      : "—"}
+                        ? Math.round(s.avg_vpd_recent).toLocaleString("pt-BR")
+                        : "—"}
+                  </td>
+                  <td style={{ textAlign: "right" }}>
+                    {s.top_video_url ? (
+                      <a href={s.top_video_url} target="_blank" rel="noreferrer">
+                        {s.top_video_views != null
+                          ? s.top_video_views.toLocaleString("pt-BR")
+                          : "—"}
+                      </a>
+                    ) : (
+                      (s.top_video_views != null
+                        ? s.top_video_views.toLocaleString("pt-BR")
+                        : "—")
+                    )}
+                    {s.top_video_title && (
+                      <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                        {s.top_video_title}
+                      </div>
+                    )}
                   </td>
                   <td className="muted" style={{ fontSize: 11 }}>{s.reason}</td>
                   <td>

@@ -67,7 +67,7 @@ export function Sidebar() {
         id="primary-sidebar"
         className={open ? "sidebar sidebar-open" : "sidebar"}
       >
-        <h1>youtube-analyzer</h1>
+        <h1>RK Youtube Analyzer</h1>
         <nav>
           {items.map((it) => {
             const active =

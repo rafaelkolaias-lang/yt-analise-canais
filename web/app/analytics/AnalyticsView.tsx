@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ChannelAvatar } from "@/components/ChannelAvatar";
-import { ChannelChart } from "@/components/ChannelChart";
+import { ChannelChart, type ChartBucket } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
 import {
@@ -28,6 +28,13 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "paused", label: "Pausados" },
   { value: "removed", label: "Removidos" },
   { value: "all", label: "Todos" },
+];
+
+const BUCKET_OPTIONS: { value: ChartBucket; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "1d", label: "1 dia" },
+  { value: "7d", label: "7 dias" },
+  { value: "30d", label: "30 dias" },
 ];
 
 function signalLabel(signal: string | null): string {
@@ -56,8 +63,22 @@ function fmtPct(v: number | null | undefined): string {
   return `${sign}${v.toFixed(1)}%`;
 }
 
+function consistencyLabel(label: string | null | undefined): string {
+  switch (label) {
+    case "forte":
+      return "consistÃªncia forte";
+    case "mista":
+      return "consistÃªncia mista";
+    case "fraca":
+      return "consistÃªncia fraca";
+    default:
+      return "sem consistÃªncia";
+  }
+}
+
 export function AnalyticsView({ niches }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [chartBucket, setChartBucket] = useState<ChartBucket>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [data, setData] = useState<PaginatedChannelAnalytics | null>(null);
@@ -149,6 +170,45 @@ export function AnalyticsView({ niches }: Props) {
         </div>
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
           mostrando {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label.toLowerCase()}
+        </span>
+      </section>
+
+      {/* Barra de granularidade dos graficos */}
+      <section
+        className="card"
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Granularidade dos gráficos</div>
+        <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {BUCKET_OPTIONS.map((opt) => {
+            const active = opt.value === chartBucket;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  if (opt.value !== chartBucket) setChartBucket(opt.value);
+                }}
+                className={active ? "btn-primary" : "btn-ghost"}
+                style={{ fontSize: 12, padding: "6px 12px" }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+          {chartBucket === "all"
+            ? "todos os snapshots"
+            : `1 ponto por ${BUCKET_OPTIONS.find((o) => o.value === chartBucket)?.label.toLowerCase()}`}
         </span>
       </section>
 
@@ -279,10 +339,17 @@ export function AnalyticsView({ niches }: Props) {
                       <div className="muted" style={{ fontSize: 12 }}>
                         {fmtNumber(summary?.subscribers.current)} inscritos ·{" "}
                         7d {fmtPct(summary?.subscribers.pct_7d)} ·{" "}
-                        30d {fmtPct(summary?.subscribers.pct_30d)}
+                        30d {fmtPct(summary?.subscribers.pct_30d)} ·{" "}
+                        90d {fmtPct(summary?.subscribers.pct_90d)}
                         {summary?.uploads_per_week != null && (
                           <> · {summary.uploads_per_week} uploads/sem</>
                         )}
+                      </div>
+                      <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+                        mediana dos últimos {summary?.recent_uploads_considered ?? 0} uploads:{" "}
+                        {fmtNumber(summary?.median_recent_views)} views · subs{" "}
+                        {consistencyLabel(summary?.subscribers_consistency?.label)} · views{" "}
+                        {consistencyLabel(summary?.views_consistency?.label)}
                       </div>
                       {summary?.signal_reason && (
                         <div
@@ -290,6 +357,26 @@ export function AnalyticsView({ niches }: Props) {
                           style={{ fontSize: 11, marginTop: 4 }}
                         >
                           {summary.signal_reason}
+                        </div>
+                      )}
+                      {summary?.breakout_candidate && summary.breakout_reason && (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "4px 8px",
+                            borderRadius: 999,
+                            background: "rgba(45, 212, 191, 0.12)",
+                            color: "#7ef0df",
+                            fontSize: 11,
+                          }}
+                        >
+                          breakout precoce
+                          <span style={{ color: "var(--text-dim)" }}>
+                            {summary.breakout_reason}
+                          </span>
                         </div>
                       )}
                     </div>
@@ -300,16 +387,25 @@ export function AnalyticsView({ niches }: Props) {
                 </div>
 
                 <div className="analytics-charts-grid">
-                  <ChannelChart title="Views totais" data={views_series} />
+                  <ChannelChart
+                    title="Views totais"
+                    data={views_series}
+                    bucket={chartBucket}
+                    aggregation="last"
+                  />
                   <ChannelChart
                     title="Inscritos"
                     data={subscribers_series}
                     color="#2dd4bf"
+                    bucket={chartBucket}
+                    aggregation="last"
                   />
                   <ChannelChart
                     title="VPD recente"
                     data={vpd_series}
                     color="#f59e0b"
+                    bucket={chartBucket}
+                    aggregation="avg"
                   />
                   <ChannelChart
                     title="Uploads/semana"
@@ -317,6 +413,8 @@ export function AnalyticsView({ niches }: Props) {
                     kind="bar"
                     color="#a78bfa"
                     formatValue={(v) => v.toFixed(1)}
+                    bucket={chartBucket}
+                    aggregation="avg"
                   />
                 </div>
               </section>

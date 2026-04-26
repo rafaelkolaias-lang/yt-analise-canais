@@ -162,12 +162,18 @@ export type MonitorSuggestion = {
   youtube_channel_id: string;
   title: string;
   url: string | null;
+  thumbnail_url: string | null;
   subscribers: number | null;
   video_count: number | null;
   avg_vpd_recent: number | null;
   channel_published_at: string | null;
   discovery_result_id: number;
   matched_term: string | null;
+  suggestion_kind: string;
+  top_video_title: string | null;
+  top_video_url: string | null;
+  top_video_views: number | null;
+  top_video_vpd: number | null;
   reason: string;
 };
 
@@ -344,6 +350,13 @@ export type GrowthPair = {
   current: number | null;
   pct_7d: number | null;
   pct_30d: number | null;
+  pct_90d: number | null;
+};
+
+export type GrowthConsistency = {
+  positive_windows: number;
+  available_windows: number;
+  label: string;
 };
 
 export type ChannelAnalyticsSummary = {
@@ -356,6 +369,12 @@ export type ChannelAnalyticsSummary = {
   views_total: GrowthPair;
   avg_vpd_recent: GrowthPair;
   uploads_per_week: number | null;
+  median_recent_views: number | null;
+  recent_uploads_considered: number;
+  subscribers_consistency: GrowthConsistency;
+  views_consistency: GrowthConsistency;
+  breakout_candidate: boolean;
+  breakout_reason: string | null;
 };
 
 export type NicheRow = {
@@ -389,4 +408,26 @@ export type PaginatedChannelAnalytics = {
   total: number;
   total_pages: number;
   items: ChannelAnalyticsBundle[];
+};
+
+// =============================================================================
+// Notifications (central operacional)
+// =============================================================================
+
+export type QuotaUsageEvent = {
+  at: string;
+  label: string;
+  cost: number;
+  key_index: number;
+};
+
+export type QuotaSummary = {
+  date_utc: string;
+  keys_count: number;
+  daily_quota_per_key: number;
+  total_quota: number;
+  used: number;
+  remaining: number;
+  used_per_key: number[];
+  last_event: QuotaUsageEvent | null;
 };

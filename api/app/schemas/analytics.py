@@ -25,6 +25,13 @@ class GrowthPair(BaseModel):
     current: Optional[float] = None
     pct_7d: Optional[float] = None
     pct_30d: Optional[float] = None
+    pct_90d: Optional[float] = None
+
+
+class GrowthConsistency(BaseModel):
+    positive_windows: int = 0
+    available_windows: int = 0
+    label: str = "sem dados"
 
 
 class ChannelAnalyticsSummary(BaseModel):
@@ -37,6 +44,12 @@ class ChannelAnalyticsSummary(BaseModel):
     views_total: GrowthPair
     avg_vpd_recent: GrowthPair
     uploads_per_week: Optional[float] = None
+    median_recent_views: Optional[float] = None
+    recent_uploads_considered: int = 0
+    subscribers_consistency: GrowthConsistency
+    views_consistency: GrowthConsistency
+    breakout_candidate: bool = False
+    breakout_reason: Optional[str] = None
 
 
 class NicheRow(BaseModel):

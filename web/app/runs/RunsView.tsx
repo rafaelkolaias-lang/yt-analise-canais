@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 
+import { ChannelAvatar } from "@/components/ChannelAvatar";
 import { useToast } from "@/components/Toaster";
+import { VideoThumbnail } from "@/components/VideoThumbnail";
 import {
   apiGet,
   apiPatch,
@@ -389,9 +391,12 @@ function RunDetail({
                         />
                       </td>
                       <td>
-                        <a href={c.url ?? "#"} target="_blank" rel="noreferrer">
-                          {c.title}
-                        </a>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                          <ChannelAvatar url={c.thumbnail_url} title={c.title} size={36} />
+                          <a href={c.url ?? "#"} target="_blank" rel="noreferrer">
+                            {c.title}
+                          </a>
+                        </div>
                       </td>
                       <td style={{ textAlign: "right" }}>{formatInt(c.subscribers)}</td>
                       <td style={{ textAlign: "right" }}>{formatInt(c.video_count)}</td>
@@ -448,9 +453,19 @@ function RunDetail({
                         />
                       </td>
                       <td>
-                        <a href={v.url ?? "#"} target="_blank" rel="noreferrer">
-                          {v.title}
-                        </a>
+                        <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                          <VideoThumbnail url={v.thumbnail_url} title={v.title} width={160} />
+                          <div style={{ minWidth: 0 }}>
+                            <a href={v.url ?? "#"} target="_blank" rel="noreferrer">
+                              {v.title}
+                            </a>
+                            {v.youtube_channel_id && (
+                              <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
+                                canal {v.youtube_channel_id}
+                              </div>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td style={{ textAlign: "right" }}>{formatInt(v.views)}</td>
                       <td style={{ textAlign: "right" }}>

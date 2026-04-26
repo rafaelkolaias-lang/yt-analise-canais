@@ -10,6 +10,7 @@ from app.routers import (
     discovery,
     health,
     monitoring,
+    notifications,
     settings as settings_router,
     suggestions,
     sync as sync_router,
@@ -49,6 +50,7 @@ app.include_router(monitoring.router)
 app.include_router(sync_router.router)
 app.include_router(analytics.router)
 app.include_router(suggestions.router)
+app.include_router(notifications.router)
 
 
 @app.get("/", tags=["root"])

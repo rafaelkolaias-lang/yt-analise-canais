@@ -14,7 +14,7 @@ from app.schemas.analytics import (
     PaginatedChannelAnalytics,
     TimeseriesPoint,
 )
-from app.services import analytics_service
+from app.services import analytics_service_v2 as analytics_service
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 

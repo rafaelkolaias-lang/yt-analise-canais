@@ -54,11 +54,12 @@ yt-analise-canais-web/
 │   │   │   ├── monitoring.py         # /api/monitoring/{channels,videos} + snapshot/patch/delete/best-videos + bulk-status/bulk-snapshot/bulk-delete
 │   │   │   ├── sync.py               # /api/sync/{status,run,runs}
 │   │   │   ├── suggestions.py        # /api/suggestions/{to-monitor,to-remove}
-│   │   │   └── analytics.py          # /api/analytics/{overview,channels(paginado),channels/:id/{timeseries,summary},niches}
+│   │   │   ├── analytics.py          # /api/analytics/{overview,channels(paginado),channels/:id/{timeseries,summary},niches}
+│   │   │   └── notifications.py      # /api/notifications/quota-summary (central operacional do site)
 │   │   ├── services/
 │   │   │   ├── settings_service.py   # público: sempre mascara secrets
 │   │   │   ├── settings_reader.py    # interno: get_int/get_float/get_str/get_csv com cast
-│   │   │   ├── youtube_client.py     # httpx + rotação de keys + quota tracking
+│   │   │   ├── youtube_client.py     # httpx + rotação de keys + quota tracking PERSISTIDA em app_settings.youtube.quota_usage_today (rollover UTC)
 │   │   │   ├── discovery_service.py  # search → hydrate → filter → persist; filtra blacklist
 │   │   │   ├── discovery_seed_terms.py # ~95 termos seed (pt+en) pra auto-discovery
 │   │   │   ├── auto_discovery_service.py # roda após sync; orçamento + termos derivados
@@ -72,7 +73,8 @@ yt-analise-canais-web/
 │   │   │   ├── monitoring.py         # AddChannel/VideoRequest, ChannelRead, TrackedVideoRead, ChannelWithStats, BulkIdsRequest, BulkStatusRequest, BulkOperationResponse
 │   │   │   ├── sync.py               # SyncRunRead, SyncStatusRead
 │   │   │   ├── suggestions.py        # MonitorSuggestion, DeadChannelSuggestion
-│   │   │   └── analytics.py          # AnalyticsOverview, TimeseriesPoint, ChannelAnalyticsSummary, NicheRow, ChannelBasic, ChannelAnalyticsBundle, PaginatedChannelAnalytics
+│   │   │   ├── analytics.py          # AnalyticsOverview, TimeseriesPoint, ChannelAnalyticsSummary, NicheRow, ChannelBasic, ChannelAnalyticsBundle, PaginatedChannelAnalytics
+│   │   │   └── notifications.py      # QuotaUsageEvent, QuotaSummary
 │   │   └── models/
 │   │       ├── __init__.py           # re-exporta todas as entidades
 │   │       └── domain.py             # 12 entidades SQLAlchemy (ver "Modelo de dados")
@@ -127,7 +129,8 @@ yt-analise-canais-web/
 │   │   ├── GlobalSyncIndicator.tsx    # badge no topo que polla /api/sync/status a cada 5s; dispara Notification ao detectar fim de sync
 │   │   ├── Skeleton.tsx               # bloco animado (shimmer) para estados de loading
 │   │   ├── ErrorCard.tsx              # cartão de erro padronizado com botão "Tentar de novo"
-│   │   └── NotificationsSettings.tsx  # toggle de notificações do navegador (configurações)
+│   │   ├── NotificationsSettings.tsx  # toggle de notificações do navegador (configurações)
+│   │   └── NotificationsCenter.tsx    # ícone fixo (canto inferior esquerdo) + popover extensível com cards (hoje: cota YouTube)
 │   ├── lib/
 │   │   ├── api.ts                    # apiGet/Post/Patch/Delete + todos os tipos
 │   │   ├── useIsMobile.ts            # hook matchMedia ≤768px (SSR-safe)
@@ -170,7 +173,7 @@ yt-analise-canais-web/
 | Healthchecks | [api/app/routers/health.py](api/app/routers/health.py) |
 | Schema do banco (models) | [api/app/models/domain.py](api/app/models/domain.py) |
 | Migrações | [api/migrations/env.py](api/migrations/env.py), [api/alembic.ini](api/alembic.ini) |
-| Settings default / seed | [api/app/seed.py](api/app/seed.py) |
+| Settings default / seed | [api/app/seed.py](api/app/seed.py) (lembrar `python -m app.seed` no pr??ximo deploy da API) |
 | API /settings (público, mascara) | [api/app/services/settings_service.py](api/app/services/settings_service.py), [api/app/routers/settings.py](api/app/routers/settings.py) |
 | Leitura interna de settings (cast) | [api/app/services/settings_reader.py](api/app/services/settings_reader.py) |
 | Cliente YouTube + rotação | [api/app/services/youtube_client.py](api/app/services/youtube_client.py) |
@@ -181,6 +184,7 @@ yt-analise-canais-web/
 | Regras de monitoramento/snapshots | [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py), [api/app/routers/monitoring.py](api/app/routers/monitoring.py) |
 | Regras de sync (scheduler + manual) | [api/app/services/sync_service.py](api/app/services/sync_service.py), [api/app/routers/sync.py](api/app/routers/sync.py) |
 | Regras de analytics (agregação snapshots) | [api/app/services/analytics_service.py](api/app/services/analytics_service.py), [api/app/routers/analytics.py](api/app/routers/analytics.py) |
+| Central de notificações operacionais (cota YouTube agregada) | [api/app/routers/notifications.py](api/app/routers/notifications.py), [api/app/schemas/notifications.py](api/app/schemas/notifications.py), [api/app/services/youtube_client.py](api/app/services/youtube_client.py) (`read_quota_summary`, `_persist_state`, `_load_persisted_usage`) |
 | **Frontend** | |
 | Cliente HTTP + tipos | [web/lib/api.ts](web/lib/api.ts) |
 | Hook `useIsMobile` (matchMedia) | [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) |
@@ -193,6 +197,7 @@ yt-analise-canais-web/
 | Tela de Runs | [web/app/runs/RunsView.tsx](web/app/runs/RunsView.tsx) |
 | Tela de Configurações | [web/app/configuracoes/ConfiguracoesForm.tsx](web/app/configuracoes/ConfiguracoesForm.tsx) |
 | Tela de Analytics | [web/app/analytics/AnalyticsView.tsx](web/app/analytics/AnalyticsView.tsx), [web/components/ChannelChart.tsx](web/components/ChannelChart.tsx) |
+| Central de notificações (ícone fixo + popover) | [web/components/NotificationsCenter.tsx](web/components/NotificationsCenter.tsx) (estrutura de cards extensível — adicionar item ao array `cards`), [web/app/layout.tsx](web/app/layout.tsx) (mount global) |
 | Input seguro (API keys) | [web/components/SecretInput.tsx](web/components/SecretInput.tsx) |
 | Feedback global (toast, sync, loading, erro) | [web/components/Toaster.tsx](web/components/Toaster.tsx), [web/components/GlobalSyncIndicator.tsx](web/components/GlobalSyncIndicator.tsx), [web/components/Skeleton.tsx](web/components/Skeleton.tsx), [web/components/ErrorCard.tsx](web/components/ErrorCard.tsx) |
 | Avatar / thumbnail (UI) | [web/components/ChannelAvatar.tsx](web/components/ChannelAvatar.tsx), [web/components/VideoThumbnail.tsx](web/components/VideoThumbnail.tsx) |
@@ -242,6 +247,7 @@ Carregadas via `python -m app.seed` (idempotente):
 - **analytics.promising_vpd_ratio**: `0.3` (multiplicador de `vpd_saturation` — VPD mínimo pra canal pequeno ser "promissor")
 - **youtube.api_keys**: secret (vazio, preenchido pela UI /configuracoes)
 - **youtube.api_key_daily_quota**: `10000`
+- **youtube.quota_usage_today**: JSON `{date_utc, used_per_key[], last_event}` — estado persistido pelo `youtube_client` a cada request bem-sucedida; rollover diário UTC. Lido pelo `/api/notifications/quota-summary`
 - **discovery.auto_enabled**: `true` (liga descoberta pós-sync)
 - **discovery.auto_quota_pct**: `0.5` (fração da quota total disponível por ciclo)
 - **discovery.auto_keywords**: ~95 termos seed pt+en (multiline, editável na UI)
@@ -300,6 +306,7 @@ Carregadas via `python -m app.seed` (idempotente):
 | GET | `/api/analytics/channels/{id}/timeseries?metric=` | Série temporal (`subscribers\|views_total\|avg_vpd_recent\|uploads_per_week`) |
 | GET | `/api/analytics/channels/{id}/summary` | Totais + crescimento % 7d/30d + uploads/sem |
 | GET | `/api/analytics/niches` | Agregação por tag: channels_count, avg_subscribers, avg_vpd |
+| GET | `/api/notifications/quota-summary` | Cota agregada YouTube: `{date_utc, keys_count, daily_quota_per_key, total_quota, used, remaining, used_per_key[], last_event}`. Só lê `app_settings.youtube.quota_usage_today` — não chama o YouTube |
 
 ---
 
@@ -401,6 +408,11 @@ Carregadas via `python -m app.seed` (idempotente):
     - **Plano B (cards stackados em `/monitoramento`)**: hook [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) usa `matchMedia` (default ≤768), SSR-safe. `MonitoramentoView` renderiza **dois blocos** por aba — `desktop-only` (tabela existente) e `mobile-only` (lista de `.mobile-card`). Cards têm header (checkbox + avatar + título + status), grid 2x2 de meta, ações row, e uma toolbar acima com "Selecionar todos / Desmarcar todos" + contador. `ChannelsFilterBar` ganhou `showSortDropdown` espelhando o que `VideosFilterBar` já tinha — em mobile ambos mostram select de ordenação inline. Aba Vídeos > grid já era responsiva, não foi tocada. Estado e handlers de seleção/bulk **reaproveitados** sem duplicação. Outras telas (`/dashboard`, `/descoberta`, `/runs`, `/configuracoes`) já usam grids responsivos (`card-grid`, `form-grid`, `settings-row`) e `.table-wrap` com `overflow-x` — sem intervenção pontual necessária. **Validação visual em 360/390/768/1024 é responsabilidade do usuário** (a IA não testa visual).
 
 42. **Descoberta visual + indisponibilidade persistente** (2026-04-26): a migration [`api/migrations/versions/1f7c9e4b2d11_add_discovery_thumbnails_and_video_unavailable.py`](api/migrations/versions/1f7c9e4b2d11_add_discovery_thumbnails_and_video_unavailable.py) adicionou `thumbnail_url` em `discovery_results_channels` e `discovery_results_videos`, além de `tracked_videos.unavailable_reason` e `tracked_videos.unavailable_since`. O [`api/app/services/discovery_service.py`](api/app/services/discovery_service.py) agora persiste thumb de canal via `pick_thumbnail(snippet)` e thumb de vídeo com fallback previsível `i.ytimg.com/vi/.../hqdefault.jpg`; [`web/app/descoberta/DescobertaForm.tsx`](web/app/descoberta/DescobertaForm.tsx) reaproveita [`web/components/ChannelAvatar.tsx`](web/components/ChannelAvatar.tsx) e [`web/components/VideoThumbnail.tsx`](web/components/VideoThumbnail.tsx) para renderizar isso na tabela. Para itens removidos/privados, [`api/app/services/monitoring_service.py`](api/app/services/monitoring_service.py) marca canal como `status='removed'` com `notes` auditável e põe o `youtube_channel_id` na blacklist; vídeos passam a gravar `unavailable_reason`/`unavailable_since`. [`api/app/services/sync_service.py`](api/app/services/sync_service.py) trata esses casos como nota informativa, sem manter `partial` recorrente.
+
+
+43. **Analytics local com sinais mais fortes (2026-04-26, aguardando deploy)**: a implementa????o ativa nas rotas agora aponta para [`api/app/services/analytics_service_v2.py`](api/app/services/analytics_service_v2.py), que corrige a contagem de `niches` para usar s?? canais com snapshot e acrescenta no `ChannelAnalyticsSummary` os campos `pct_90d`, `median_recent_views`, `recent_uploads_considered`, `subscribers_consistency`, `views_consistency`, `breakout_candidate` e `breakout_reason`. A UI em [`web/app/analytics/AnalyticsView.tsx`](web/app/analytics/AnalyticsView.tsx) j?? mostra 90d, mediana dos uploads recentes, consist??ncia de crescimento e selo de breakout precoce.
+
+44. **Uploads/semana corrigido na origem (2026-04-26, aguardando deploy)**: [`api/app/services/monitoring_service.py`](api/app/services/monitoring_service.py) deixou de calcular `uploads_per_week` a partir de `TrackedVideo.first_tracked_at` e passou a usar uploads reais da uploads playlist do canal durante o snapshot. Isso melhora os pr??ximos snapshots; hist??rico antigo permanece com a m??trica antiga at?? novos syncs. Como esta rodada adicionou novas keys em `app_settings` (analytics/suggestions), o pr??ximo deploy da `api` precisa rodar `python -m app.seed`.
 
 ---
 

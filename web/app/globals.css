@@ -1282,3 +1282,103 @@ tr.row-selected > td {
   }
 }
 
+/* =============================================================================
+ * Central de notificações — ícone fixo no canto inferior esquerdo + popover
+ * ============================================================================= */
+.notif-root {
+  position: fixed;
+  bottom: 16px;
+  left: 16px;
+  z-index: 70;
+}
+
+.notif-toggle {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 999px;
+  background: var(--bg-elev);
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.notif-toggle:hover {
+  border-color: var(--accent);
+}
+
+.notif-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 2px solid var(--bg-elev);
+}
+.notif-badge-warn {
+  background: var(--warn);
+}
+.notif-badge-danger {
+  background: var(--danger);
+}
+
+.notif-popover {
+  position: absolute;
+  bottom: 56px;
+  left: 0;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  overflow: hidden;
+}
+
+.notif-popover-header {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.notif-popover-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.notif-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.notif-card-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+@media (max-width: 768px) {
+  .notif-root {
+    bottom: 12px;
+    left: 12px;
+  }
+  .notif-popover {
+    width: 280px;
+  }
+}
+

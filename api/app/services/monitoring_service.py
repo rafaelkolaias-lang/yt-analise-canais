@@ -244,38 +244,55 @@ def delete_video(db: Session, video_id: int) -> None:
 # =============================================================================
 # Snapshots
 # =============================================================================
-def _pick_best_recent_upload(
-    client: youtube_client.YouTubeClient, channel: Channel, sample_size: int
-) -> Optional[dict]:
+def _recent_upload_metrics(
+    client: youtube_client.YouTubeClient,
+    channel: Channel,
+    sample_size: int,
+    weekly_window_days: int = 30,
+) -> tuple[Optional[dict], Optional[float]]:
     """
-    Pega os últimos `sample_size` uploads do canal (via playlistItems da uploads
-    playlist), hidrata com statistics/contentDetails e retorna o vídeo com maior
-    VPD. Retorna None se não houver uploads elegíveis.
+    Usa a uploads playlist do canal para calcular duas métricas com a mesma
+    leitura da API:
+      - melhor vídeo recente (maior VPD entre os uploads amostrados)
+      - uploads/semana real, baseado em quantos uploads o canal publicou nos
+        últimos `weekly_window_days`
+
+    Como playlistItems e videos.list custam 1 unit cada até 50 itens, buscamos
+    até 50 uploads recentes de uma vez e reaproveitamos o mesmo lote para ambas
+    as métricas.
     """
     playlist_id = client.uploads_playlist_id(channel.youtube_channel_id)
-    items = client.playlist_items(playlist_id, max_results=sample_size)
+    items = client.playlist_items(playlist_id, max_results=max(sample_size, 50))
     video_ids = [
         (i.get("contentDetails") or {}).get("videoId")
         for i in items
         if (i.get("contentDetails") or {}).get("videoId")
     ]
     if not video_ids:
-        return None
+        return (None, None)
 
     videos = client.videos_by_ids(video_ids)
+    now = datetime.utcnow()
+    cutoff = now - timedelta(days=weekly_window_days)
 
     best = None
     best_vpd = -1.0
+    uploads_in_window = 0
     for v in videos:
         stats = v.get("statistics") or {}
         snippet = v.get("snippet") or {}
         views = int(stats.get("viewCount", 0) or 0)
         published = parse_iso_dt(snippet.get("publishedAt", ""))
+        if published is not None and published >= cutoff:
+          uploads_in_window += 1
         vpd = compute_vpd(views, published)
         if vpd > best_vpd:
             best_vpd = vpd
             best = v
-    return best
+    uploads_per_week = None
+    if uploads_in_window > 0:
+        uploads_per_week = round(uploads_in_window / (weekly_window_days / 7), 2)
+    return (best, uploads_per_week)
 
 
 def _accumulate_best_video(
@@ -325,22 +342,6 @@ def _last_channel_snapshot(db: Session, channel_id: int) -> Optional[ChannelSnap
         .order_by(desc(ChannelSnapshot.captured_at))
         .first()
     )
-
-
-def _uploads_per_week_from_tracked(db: Session, channel_id: int) -> Optional[float]:
-    """
-    Aproxima uploads/semana contando TrackedVideo.first_tracked_at nos últimos 30 dias.
-    Sem custo de quota adicional — reaproveita o que o snapshot já detecta.
-    """
-    cutoff = datetime.utcnow() - timedelta(days=30)
-    count = (
-        db.query(TrackedVideo)
-        .filter(TrackedVideo.channel_id == channel_id, TrackedVideo.first_tracked_at >= cutoff)
-        .count()
-    )
-    if count == 0:
-        return None
-    return round(count / (30 / 7), 2)
 
 
 def _classify_signal(
@@ -453,8 +454,9 @@ def snapshot_channel(db: Session, channel_id: int, sample_size: int = 10) -> Cha
     if new_thumb and new_thumb != channel.thumbnail_url:
         channel.thumbnail_url = new_thumb
 
-    # 2) melhor upload recente (pode ser o mesmo de snapshot anterior — não duplica)
-    best = _pick_best_recent_upload(client, channel, sample_size)
+    # 2) uploads recentes reais do canal (mesmo lote usado para "melhor vídeo"
+    # e para a frequência semanal de uploads)
+    best, uploads_per_week = _recent_upload_metrics(client, channel, sample_size)
     _accumulate_best_video(db, channel, best)
 
     # 3) deltas vs último snapshot
@@ -482,8 +484,6 @@ def snapshot_channel(db: Session, channel_id: int, sample_size: int = 10) -> Cha
     if avg_vpd_recent is not None and prev is not None and prev.avg_vpd_recent is not None:
         delta_avg_vpd = avg_vpd_recent - prev.avg_vpd_recent
         vpd_trend = delta_avg_vpd
-
-    uploads_per_week = _uploads_per_week_from_tracked(db, channel.id)
 
     vpd_saturation = settings_reader.get_int(db, "channel.vpd_saturation", 100000)
     promising_max_subs = settings_reader.get_int(

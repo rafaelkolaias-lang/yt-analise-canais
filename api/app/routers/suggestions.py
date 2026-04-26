@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.suggestions import DeadChannelSuggestion, MonitorSuggestion
-from app.services import suggestions_service
+from app.services import suggestions_service_v2 as suggestions_service
 
 router = APIRouter(prefix="/api/suggestions", tags=["suggestions"])
 

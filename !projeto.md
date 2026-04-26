@@ -2,21 +2,22 @@
 
 > Sistema web para descoberta, monitoramento e analytics de canais do YouTube, com foco em identificar **nichos dark em aceleração** e oportunidades de réplica. Sucessor em arquitetura web do app desktop Tkinter antigo (agora removido — toda a funcionalidade relevante foi portada para o stack web).
 
-> **Status (2026-04-24):**
-> - **Fase 0** (fundação web) — ✅
-> - **Fase 1** (modelagem do banco) — ✅
-> - **Fase 2** (configurações centrais + API keys cifradas) — ✅
-> - **Fase 3** (descoberta com YouTube Data API v3) — ✅
-> - **Fase 4** (monitoramento persistente + snapshots + melhores vídeos) — ✅
-> - **Fase 5** (sync automático APScheduler + manual + histórico) — ✅
-> - **Fase 6** (analytics: sinais, mini-gráficos por canal, nichos) — ✅
-> - **Fase 7** (UX polish: toaster, skeletons, indicador global de sync) — ✅
-> - **Fase 8** (Dockerfiles + docs prontos para deploy EasyPanel) — ✅
-> - **Deploy inicial em produção** (EasyPanel projeto `banco`) — ✅ 2026-04-24
+> **Status (2026-04-26):**
+> - **Fases 0–8** (fundação → deploy EasyPanel) — ✅ concluídas em 2026-04-24
+> - **Pós-MVP entregue 2026-04-25/26** (em produção):
+>   - Analytics paginado (eliminou fan-out de 5N requests)
+>   - Ações em massa em /monitoramento (canais e vídeos)
+>   - Responsividade real Plano A + B (drawer mobile, cards stackados ≤768px)
+>   - Bulk progress bar (snapshot itemizado, concorrência 4)
+>   - Notificações do navegador no fim de sync
+>   - Descoberta automática pós-sync (orçamento + termos derivados)
+>   - Blacklist de canais removidos
+>   - Revisão persistente por item (`reviewed_at`) em /runs > Descoberta
+>   - Sugestões automáticas em /monitoramento > Sugestões (canais novos
+>     com VPD alto + canais "mortos" pra pausar/remover)
 >
-> Sistema operacional 24/7. Próxima ação manual: configurar a YouTube API key
-> em `/configuracoes` pra começar a popular dados (sync já está agendado pro
-> próximo tick de 12h, mas precisa de key pra fazer requests reais).
+> Sistema operacional 24/7 com YouTube API key configurada e descoberta
+> automática rodando após cada sync.
 
 ---
 
@@ -52,6 +53,7 @@ yt-analise-canais-web/
 │   │   │   ├── discovery.py          # /api/discovery/{defaults,search,runs,runs/:id}
 │   │   │   ├── monitoring.py         # /api/monitoring/{channels,videos} + snapshot/patch/delete/best-videos + bulk-status/bulk-snapshot/bulk-delete
 │   │   │   ├── sync.py               # /api/sync/{status,run,runs}
+│   │   │   ├── suggestions.py        # /api/suggestions/{to-monitor,to-remove}
 │   │   │   └── analytics.py          # /api/analytics/{overview,channels(paginado),channels/:id/{timeseries,summary},niches}
 │   │   ├── services/
 │   │   │   ├── settings_service.py   # público: sempre mascara secrets
@@ -62,12 +64,14 @@ yt-analise-canais-web/
 │   │   │   ├── auto_discovery_service.py # roda após sync; orçamento + termos derivados
 │   │   │   ├── monitoring_service.py # add/snapshot/toggle/delete (+ blacklist no delete) + best videos + signal/analytics enrichment
 │   │   │   ├── sync_service.py       # run_sync: itera ativos, tolera falha individual; engata auto_discovery no fim
+│   │   │   ├── suggestions_service.py # recomendações: monitorar canais novos + pausar/remover canais mortos
 │   │   │   └── analytics_service.py  # overview, timeseries, summary, niches (só lê banco)
 │   │   ├── schemas/
 │   │   │   ├── settings.py           # AppSettingRead / AppSettingUpdate
 │   │   │   ├── discovery.py          # SearchRequest, DefaultFiltersRead, ResultChannel/Video, DiscoveryRunRead
 │   │   │   ├── monitoring.py         # AddChannel/VideoRequest, ChannelRead, TrackedVideoRead, ChannelWithStats, BulkIdsRequest, BulkStatusRequest, BulkOperationResponse
 │   │   │   ├── sync.py               # SyncRunRead, SyncStatusRead
+│   │   │   ├── suggestions.py        # MonitorSuggestion, DeadChannelSuggestion
 │   │   │   └── analytics.py          # AnalyticsOverview, TimeseriesPoint, ChannelAnalyticsSummary, NicheRow, ChannelBasic, ChannelAnalyticsBundle, PaginatedChannelAnalytics
 │   │   └── models/
 │   │       ├── __init__.py           # re-exporta todas as entidades
@@ -177,6 +181,7 @@ yt-analise-canais-web/
 | Hook `useBrowserNotifications` (Notification API + permission) | [web/lib/useBrowserNotifications.ts](web/lib/useBrowserNotifications.ts) |
 | Descoberta automática (orçamento + termos) | [api/app/services/auto_discovery_service.py](api/app/services/auto_discovery_service.py), [api/app/services/discovery_seed_terms.py](api/app/services/discovery_seed_terms.py) |
 | Blacklist de canais (delete + filtro) | [api/app/services/monitoring_service.py](api/app/services/monitoring_service.py) (`delete_channel`), [api/app/services/discovery_service.py](api/app/services/discovery_service.py) (`get_blacklisted_channel_ids`) |
+| Sugestões de monitoramento (recomendar/remover) | [api/app/services/suggestions_service.py](api/app/services/suggestions_service.py), [api/app/routers/suggestions.py](api/app/routers/suggestions.py) |
 | Layout/navegação | [web/app/layout.tsx](web/app/layout.tsx), [web/components/Sidebar.tsx](web/components/Sidebar.tsx) |
 | Estilo global | [web/app/globals.css](web/app/globals.css) |
 | Dashboard | [web/app/page.tsx](web/app/page.tsx), [web/app/DashboardSyncPanel.tsx](web/app/DashboardSyncPanel.tsx) |
@@ -236,6 +241,10 @@ Carregadas via `python -m app.seed` (idempotente):
 - **discovery.auto_keywords**: ~95 termos seed pt+en (multiline, editável na UI)
 - **discovery.auto_max_terms_per_run**: `30`
 - **discovery.auto_derived_term_min_freq**: `3`
+- **suggestions.monitor_min_vpd**: `10000` (VPD mínimo p/ recomendar canal)
+- **suggestions.monitor_max_age_days**: `60` (idade máxima do canal p/ recomendar)
+- **suggestions.dead_min_days_no_uploads**: `60` (sem uploads há ≥N dias)
+- **suggestions.dead_max_vpd**: `2000` (VPD ≤ X — regras valem em conjunto)
 
 ---
 
@@ -257,6 +266,8 @@ Carregadas via `python -m app.seed` (idempotente):
 | PATCH | `/api/discovery/runs/{run_id}/videos/{result_id}/review` | Idem para vídeo |
 | GET | `/api/discovery/blacklist` | Lista canais blacklistados (cada `delete_channel` adiciona) |
 | DELETE | `/api/discovery/blacklist/{youtube_channel_id}` | Remove da blacklist (permite re-monitorar) |
+| GET | `/api/suggestions/to-monitor` | Canais descobertos (não monitorados, fora da blacklist) que batem `suggestions.monitor_*` (VPD alto + idade baixa). Ordenado por VPD desc |
+| GET | `/api/suggestions/to-remove` | Canais monitorados que batem regra de "morto" (`suggestions.dead_*`): sem uploads recentes E VPD baixo E sinal estagnado |
 | GET | `/api/monitoring/channels` | Canais + último snapshot (subs, views, deltas, last_sync) |
 | POST | `/api/monitoring/channels` | Adiciona canal por `youtube_channel_id` (idempotente) |
 | PATCH | `/api/monitoring/channels/{id}` | Altera `status` (`active`/`paused`/`removed`) |
@@ -372,7 +383,14 @@ Carregadas via `python -m app.seed` (idempotente):
 
 39. **Notificações do navegador** (2026-04-25, escopo inicial): `Notification` API nativa, **funciona só com aba aberta**. Não usa Service Worker / Web Push (entrega em background completa exigiria backend de push com VAPID + persistência de subscription). Hook [web/lib/useBrowserNotifications.ts](web/lib/useBrowserNotifications.ts) expõe estados (`unsupported|default|granted|denied`) + preferência `enabled` em `localStorage` (per-device — não faz sentido sincronizar). [web/components/NotificationsSettings.tsx](web/components/NotificationsSettings.tsx) fica no topo da `/configuracoes` com toggle inteligente que adapta texto por estado. Eventos disparadores: por enquanto, **só término de sync** — [web/components/GlobalSyncIndicator.tsx](web/components/GlobalSyncIndicator.tsx) detecta transição `running → terminado` (ou run novo já terminado, comparando `prevStatus`+`prevId`) e dispara `Notification` com título por status (`Sync concluído ✓` / `... com falhas parciais` / `Sync falhou`) e body `channels_processed · videos_processed`. `tag: sync-{id}` evita duplicatas se o browser re-mostrar.
 
-40. **Responsividade real** (2026-04-25, Plano A + Plano B): a aplicação não é mais desktop-only.
+40. **Sugestões automáticas de monitoramento** (2026-04-26): tela `/monitoramento` ganhou aba **Sugestões** com duas seções, sem ação automática (sempre exige clique do usuário):
+    - **"Recomendados para monitorar"**: `GET /api/suggestions/to-monitor` → `suggestions_service.list_monitor_suggestions(db)` busca em `discovery_results_channels` (último registro por `youtube_channel_id` via `MAX(captured_at)`) os canais que (a) **não** estão na tabela `channels`, (b) **não** estão na blacklist, (c) `avg_vpd_recent ≥ suggestions.monitor_min_vpd` (default 10000), (d) `channel_published_at` existe e `>= now - suggestions.monitor_max_age_days` (default 60). Ordena por VPD desc.
+    - **"Possivelmente mortos"**: `GET /api/suggestions/to-remove` → `list_dead_suggestions(db)` percorre canais `status='active'` e aplica regra composta (TODAS valem): (a) último `TrackedVideo.first_tracked_at` há ≥ `suggestions.dead_min_days_no_uploads` dias OU sem uploads tracked nenhum, (b) `last_snapshot.avg_vpd_recent ≤ suggestions.dead_max_vpd` (default 2000), (c) `last_snapshot.signal in (NULL, 'stable', 'unknown')`. Ordena por "mais morto primeiro" (VPD asc, dias-sem-upload desc).
+    - **`channel_published_at` em `discovery_results_channels`** (migration `d6df02f56387`): coluna nova preenchida pelo `discovery_service.run_discovery` a partir do `snippet.publishedAt` que já vem grátis em `channels.list` (zero quota extra). Registros antigos (pré-migration) ficam NULL e **não aparecem** nas sugestões de monitorar até serem re-descobertos pelo auto-discovery.
+    - **UI** ([web/app/monitoramento/MonitoramentoView.tsx](web/app/monitoramento/MonitoramentoView.tsx)): aba lazy-load (carrega só ao abrir), botão "Recarregar" no banner. Cards `SuggestionsToMonitor` e `SuggestionsToRemove` (componentes locais). Ações reusam endpoints existentes (`POST /api/monitoring/channels`, `PATCH /channels/:id`, `DELETE /channels/:id`) — ao executar, item sai da lista local na hora pra dar feedback imediato.
+    - **Configs separadas** em `/configuracoes` → "Sugestões" (prefixo `suggestions.*`, distinto de `analytics.*`/`monitor.*`/`discovery.*` justamente pra evitar mistura).
+
+41. **Responsividade real** (2026-04-25, Plano A + Plano B): a aplicação não é mais desktop-only.
     - **Plano A (shell + breakpoints)**: [web/components/Sidebar.tsx](web/components/Sidebar.tsx) virou drawer mobile com botão hambúrguer fixed, ESC fecha, troca de rota fecha, click no overlay fecha, `body { overflow: hidden }` enquanto aberto. [web/app/globals.css](web/app/globals.css) tem 3 breakpoints reais: ≤1024 (sidebar 200px, padding reduzido, analytics-overview 2 col), ≤768 (sidebar fixed transformX, hambúrguer aparece, `.main` ganha padding-top 64px, tabs roláveis horizontalmente, filter-bar quebra em linhas, row-actions com tap target ≥36px, tabelas com `overflow-x: auto` + paddings reduzidos, toaster ancorado no rodapé largura quase total, card-grid 1 col, video-grid `minmax(220px,1fr)`), ≤480 (tipografia menor, botões 36px+, bulk-actions empilhada com botões 38px+). Bulk-actions já empilha em ≤600.
     - **Plano B (cards stackados em `/monitoramento`)**: hook [web/lib/useIsMobile.ts](web/lib/useIsMobile.ts) usa `matchMedia` (default ≤768), SSR-safe. `MonitoramentoView` renderiza **dois blocos** por aba — `desktop-only` (tabela existente) e `mobile-only` (lista de `.mobile-card`). Cards têm header (checkbox + avatar + título + status), grid 2x2 de meta, ações row, e uma toolbar acima com "Selecionar todos / Desmarcar todos" + contador. `ChannelsFilterBar` ganhou `showSortDropdown` espelhando o que `VideosFilterBar` já tinha — em mobile ambos mostram select de ordenação inline. Aba Vídeos > grid já era responsiva, não foi tocada. Estado e handlers de seleção/bulk **reaproveitados** sem duplicação. Outras telas (`/dashboard`, `/descoberta`, `/runs`, `/configuracoes`) já usam grids responsivos (`card-grid`, `form-grid`, `settings-row`) e `.table-wrap` com `overflow-x` — sem intervenção pontual necessária. **Validação visual em 360/390/768/1024 é responsabilidade do usuário** (a IA não testa visual).
 
@@ -459,8 +477,9 @@ URLs: Dashboard <http://localhost:3000>, Swagger <http://localhost:8000/docs>.
 - **Webhook de deploy do EasyPanel é uma credencial**. Cada serviço tem seu próprio. Estão guardados em `temporary_rules.md` (gitignorado). Não ecoar em respostas pro usuário depois de salvos.
 - **Auto-discovery em base nova/sem canais**: a derivação de termos depende de já haver `Channel` ou `DiscoveryResultChannel` no banco. Em base zerada, os primeiros runs usam só termos seed — esperado, vai melhorar conforme aparecem canais.
 - **Notificações do navegador só com aba aberta**: a Notification API atual NÃO entrega em background. Pra entrega real (PWA / Web Push), precisa Service Worker + backend de push com VAPID keys + persistência de subscriptions — é tarefa separada não implementada.
-- **Migration 56a880b51364 não foi rodada em prod**: a migration `add_blacklist_and_review_state` (cria `channel_blacklist` + `reviewed_at` em `discovery_results_*`) e os 5 settings novos `discovery.*` precisam de `alembic upgrade head` + `python -m app.seed` no shell do EasyPanel após o deploy. Sem isso, qualquer `delete_channel` ou auto-discovery vai estourar erro de tabela/coluna inexistente.
 - **Bulk endpoints antigos seguem expostos**: `/api/monitoring/{channels,videos}/bulk-snapshot` ainda existem mas a UI principal não usa mais (substituído pelo `runItemizedSnapshot`). Mantido por compat com qualquer script CLI; remover só se confirmar que ninguém depende.
+- **Migration `d6df02f56387` precisa rodar em prod**: adiciona `discovery_results_channels.channel_published_at` (necessária pra "Sugestões → Recomendados para monitorar" funcionar) e seed adiciona 4 settings `suggestions.*`. Após deploy do `-api`, rodar `alembic upgrade head` + `python -m app.seed` no shell EasyPanel. Sem isso, a aba Sugestões aparece mas a lista "Recomendados" fica vazia (filtro exige `channel_published_at IS NOT NULL`).
+- **Sugestões dependem de canais re-descobertos**: registros pré-migration `d6df02f56387` em `discovery_results_channels` não têm `channel_published_at` populado (NULL). O auto-discovery re-popula naturalmente conforme re-encontra os canais. Em base nova, primeiros runs já gravam corretamente.
 
 ---
 

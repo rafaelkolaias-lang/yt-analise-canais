@@ -221,6 +221,7 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
             subs = int(c_stats.get("subscriberCount", 0) or 0) if not c_stats.get("hiddenSubscriberCount") else None
             views_total = int(c_stats.get("viewCount", 0) or 0)
             video_count = int(c_stats.get("videoCount", 0) or 0)
+            channel_published_at = parse_iso_dt(c_snippet.get("publishedAt", ""))
 
             db.add(
                 DiscoveryResultChannel(
@@ -231,6 +232,11 @@ def run_discovery(db: Session, filters: DiscoveryFilters) -> DiscoveryRun:
                     subscribers=subs,
                     views_total=views_total,
                     video_count=video_count,
+                    channel_published_at=(
+                        channel_published_at.replace(tzinfo=None)
+                        if channel_published_at
+                        else None
+                    ),
                 )
             )
 

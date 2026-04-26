@@ -11,6 +11,7 @@ from app.routers import (
     health,
     monitoring,
     settings as settings_router,
+    suggestions,
     sync as sync_router,
 )
 
@@ -47,6 +48,7 @@ app.include_router(discovery.router)
 app.include_router(monitoring.router)
 app.include_router(sync_router.router)
 app.include_router(analytics.router)
+app.include_router(suggestions.router)
 
 
 @app.get("/", tags=["root"])

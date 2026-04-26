@@ -158,6 +158,34 @@ DEFAULT_SETTINGS: list[dict] = [
         "value_type": "int",
         "description": "Frequência mínima de uma palavra em títulos de canais já descobertos para virar termo derivado de busca.",
     },
+    # -------------------------------------------------------------
+    # Sugestões automáticas (recomendações exibidas em Monitoramento > Sugestões)
+    # São APENAS recomendações — nunca executam ação no canal.
+    # -------------------------------------------------------------
+    {
+        "key": "suggestions.monitor_min_vpd",
+        "value": "10000",
+        "value_type": "int",
+        "description": "VPD recente mínimo para um canal descoberto ser SUGERIDO para monitoramento.",
+    },
+    {
+        "key": "suggestions.monitor_max_age_days",
+        "value": "60",
+        "value_type": "int",
+        "description": "Idade máxima do canal (em dias desde a criação) para ser SUGERIDO para monitoramento.",
+    },
+    {
+        "key": "suggestions.dead_min_days_no_uploads",
+        "value": "60",
+        "value_type": "int",
+        "description": "Dias sem novos uploads (TrackedVideo recente) para um canal ser candidato a 'morto'.",
+    },
+    {
+        "key": "suggestions.dead_max_vpd",
+        "value": "2000",
+        "value_type": "int",
+        "description": "VPD recente máximo para um canal ser candidato a 'morto'. As 3 regras de morto valem em conjunto (E lógico).",
+    },
 ]
 
 

@@ -244,6 +244,11 @@ class DiscoveryResultChannel(Base):
     captured_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
 
+    # Data real da criação do canal no YouTube (vinda de channels.list).
+    # Pode ser NULL para registros antigos (pré-2026-04-26) — backfill
+    # natural conforme o auto-discovery re-encontra os canais.
+    channel_published_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
     run: Mapped["DiscoveryRun"] = relationship(back_populates="channel_results")
 
 

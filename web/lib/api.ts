@@ -153,6 +153,38 @@ export type BlacklistEntry = {
 };
 
 // =============================================================================
+// Suggestions (recomendações de monitoramento)
+// =============================================================================
+
+export type MonitorSuggestion = {
+  youtube_channel_id: string;
+  title: string;
+  url: string | null;
+  subscribers: number | null;
+  video_count: number | null;
+  avg_vpd_recent: number | null;
+  channel_published_at: string | null;
+  discovery_result_id: number;
+  matched_term: string | null;
+  reason: string;
+};
+
+export type DeadChannelSuggestion = {
+  channel_id: number;
+  youtube_channel_id: string;
+  title: string;
+  url: string | null;
+  thumbnail_url: string | null;
+  status: string;
+  last_snapshot_at: string | null;
+  last_upload_at: string | null;
+  days_since_last_upload: number | null;
+  avg_vpd_recent: number | null;
+  signal: string | null;
+  reason: string;
+};
+
+// =============================================================================
 // Monitoring
 // =============================================================================
 

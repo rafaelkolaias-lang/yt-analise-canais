@@ -55,6 +55,13 @@ const SECTIONS: Section[] = [
     match: (k) => k.startsWith("discovery."),
   },
   {
+    id: "suggestions",
+    title: "Sugestões",
+    description:
+      "Thresholds das recomendações exibidas em Monitoramento → Sugestões. São RECOMENDAÇÕES — nada é executado automaticamente. Estão separadas das outras configs para evitar mistura.",
+    match: (k) => k.startsWith("suggestions."),
+  },
+  {
     id: "youtube",
     title: "API do YouTube",
     description:

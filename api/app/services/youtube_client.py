@@ -14,9 +14,25 @@ Convenções:
   - Rollover diário em UTC (casa com o reset oficial da quota do YouTube).
   - Se nenhuma key tem saldo, levanta `QuotaExceeded`.
   - Se key é inválida (HTTP 400 keyInvalid), levanta `InvalidAPIKey`.
+
+Identidade da key:
+  - Cada key recebe uma `fingerprint` = primeiros 16 hex de SHA-256 da string.
+  - O JSON persistido usa `used_by_fingerprint: {fp: int}` em vez de vetor por
+    posição. Isso preserva o uso correto se o usuário reordenar/remover/adicionar
+    keys no meio do dia.
+  - Para compatibilidade, ainda lemos o formato antigo `used_per_key: [int]`
+    (vetor por posição) e migramos transparentemente.
+
+Concorrência:
+  - O persist faz **merge somando deltas** dentro de uma transação curta
+    (`SELECT ... FOR UPDATE` na linha do setting), não um overwrite cego.
+    Cada `_get` rastreia `pending_delta_by_fp` localmente e flusha pro DB
+    somando ao que já estiver lá. Assim duas requests concorrentes em
+    processos diferentes não se sobrescrevem.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import time
 from dataclasses import dataclass, field
@@ -42,6 +58,11 @@ QUOTA_COST = {
 # Chave de app_settings onde gravamos o estado agregado de uso diário.
 QUOTA_USAGE_SETTING_KEY = "youtube.quota_usage_today"
 
+# Tamanho do prefixo SHA-256 usado como identidade da key.
+# 16 hex = 64 bits — colisão entre as ~poucas keys cadastradas é essencialmente zero
+# e o JSON persistido fica curto.
+_FP_LEN = 16
+
 
 class QuotaExceeded(RuntimeError):
     pass
@@ -59,6 +80,11 @@ def _today_utc_str() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _fingerprint(key: str) -> str:
+    """Identidade estável da key sem expor o segredo."""
+    return hashlib.sha256(key.encode("utf-8")).hexdigest()[:_FP_LEN]
+
+
 @dataclass
 class YouTubeClient:
     """
@@ -69,11 +95,15 @@ class YouTubeClient:
 
     O contador `used` é hidratado a partir de `app_settings.youtube.quota_usage_today`
     no `build_from_db`, então diferentes processos convergem entre si na próxima
-    instância. Toda request bem-sucedida grava o novo estado de volta.
+    instância. Toda request bem-sucedida grava o novo estado de volta via merge
+    aditivo (não overwrite), preservando consumo de outros processos concorrentes.
     """
     keys: list[str]
     daily_quota: int
-    used: list[int] = field(default_factory=list)
+    # Identidade estável de cada key, na mesma ordem de `keys`.
+    fingerprints: list[str] = field(default_factory=list)
+    # Uso por fingerprint (o que está em memória, hidratado do banco no build).
+    used_by_fp: dict[str, int] = field(default_factory=dict)
     current: int = 0
     # Sessão DB usada para persistir uso agregado. Opcional: se None, o client
     # funciona normalmente mas sem persistir (modo legado).
@@ -83,22 +113,41 @@ class YouTubeClient:
     date_utc: str = field(default_factory=_today_utc_str)
     # Último evento de consumo: {"at": ISO, "label": str, "cost": int, "key_index": int}
     last_event: Optional[dict] = None
+    # Deltas locais ainda não somados ao banco — flushados a cada _persist_state.
+    # São o que torna o merge entre processos seguro.
+    _pending_delta_by_fp: dict[str, int] = field(default_factory=dict)
+    # Fingerprints marcadas como esgotadas neste processo (HTTP 403/quota).
+    # No merge, o valor final fica saturado em pelo menos `daily_quota` para
+    # propagar a saturação aos próximos processos sem inflar o total.
+    _pending_exhausted_fp: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         if not self.keys:
             raise NoAPIKeyConfigured(
                 "Nenhuma API key cadastrada. Configure em /configuracoes (youtube.api_keys)."
             )
-        if len(self.used) != len(self.keys):
-            # Caso a quantidade de keys mude entre uma persistência e outra,
-            # normaliza pro tamanho atual sem perder o que dá.
-            self.used = (self.used + [0] * len(self.keys))[: len(self.keys)]
+        if not self.fingerprints or len(self.fingerprints) != len(self.keys):
+            self.fingerprints = [_fingerprint(k) for k in self.keys]
+        # Garante uma entrada (default 0) para cada fingerprint atual.
+        for fp in self.fingerprints:
+            self.used_by_fp.setdefault(fp, 0)
+
+    # ---------------------------------------------------------------------
+    # Helpers de uso por posição (mantidos para a UI legada / schema atual).
+    # ---------------------------------------------------------------------
+    @property
+    def used(self) -> list[int]:
+        """Vetor de uso por posição atual de keys (apenas leitura)."""
+        return [int(self.used_by_fp.get(fp, 0)) for fp in self.fingerprints]
+
+    def _remaining(self, idx: int) -> int:
+        return self.daily_quota - int(self.used_by_fp.get(self.fingerprints[idx], 0))
 
     def _pick_key(self, cost: int) -> int:
         n = len(self.keys)
         for offset in range(n):
             idx = (self.current + offset) % n
-            if self.daily_quota - self.used[idx] >= cost:
+            if self._remaining(idx) >= cost:
                 self.current = idx
                 return idx
         raise QuotaExceeded(
@@ -110,29 +159,94 @@ class YouTubeClient:
         today = _today_utc_str()
         if today != self.date_utc:
             self.date_utc = today
-            self.used = [0] * len(self.keys)
+            self.used_by_fp = {fp: 0 for fp in self.fingerprints}
+            self._pending_delta_by_fp = {}
             self.last_event = None
 
+    # ---------------------------------------------------------------------
+    # Persistência com merge aditivo seguro pra concorrência.
+    # ---------------------------------------------------------------------
     def _persist_state(self) -> None:
         """
-        Grava o estado atual em `app_settings.youtube.quota_usage_today` como JSON.
+        Grava o estado atual em `app_settings.youtube.quota_usage_today` como JSON,
+        somando deltas locais ao que já estiver no banco (merge aditivo). Isso evita
+        que duas execuções concorrentes sobrescrevam o consumo uma da outra.
+
         Silencioso em falha — o consumo real do YouTube não pode ser bloqueado por
         problema de telemetria.
         """
         if self.db is None:
             return
-        payload = {
-            "date_utc": self.date_utc,
-            "used_per_key": list(self.used),
-            "last_event": self.last_event,
-        }
+
+        # Snapshot dos deltas e marcas de esgotamento pendentes pra esta flush.
+        # Mesmo se o evento atual tiver delta zero, o last_event ainda precisa ir
+        # pro banco.
+        deltas = self._pending_delta_by_fp
+        exhausted = self._pending_exhausted_fp
+        self._pending_delta_by_fp = {}
+        self._pending_exhausted_fp = set()
+
         try:
             row = (
                 self.db.query(AppSetting)
                 .filter_by(key=QUOTA_USAGE_SETTING_KEY)
+                .with_for_update()
                 .one_or_none()
             )
-            value = json.dumps(payload, separators=(",", ":"))
+
+            # Estado atual no banco (sob lock).
+            db_used_by_fp: dict[str, int] = {}
+            db_date = self.date_utc
+            db_last_event = self.last_event
+            if row is not None and row.value:
+                try:
+                    payload = json.loads(row.value)
+                    db_date = str(payload.get("date_utc") or self.date_utc)
+                    db_used_by_fp = _coerce_used_by_fp(
+                        payload, fingerprints=self.fingerprints
+                    )
+                    if "last_event" in payload:
+                        db_last_event = payload.get("last_event")
+                except (TypeError, ValueError):
+                    db_used_by_fp = {}
+
+            # Rollover: se o que tá no banco é de outro dia (UTC), zera tudo
+            # antes de aplicar nossos deltas.
+            if db_date != self.date_utc:
+                db_used_by_fp = {}
+                db_last_event = None
+
+            # Soma os deltas locais sobre o que está no banco (merge aditivo).
+            merged: dict[str, int] = dict(db_used_by_fp)
+            for fp, delta in deltas.items():
+                merged[fp] = int(merged.get(fp, 0)) + int(delta)
+            # Keys marcadas como esgotadas neste processo: garantir floor =
+            # daily_quota pra propagar a saturação a outros processos sem inflar
+            # o total acima do limite.
+            for fp in exhausted:
+                merged[fp] = max(int(merged.get(fp, 0)), int(self.daily_quota))
+
+            # last_event sempre reflete o evento mais recente conhecido por este
+            # processo (o que casa com o comportamento anterior).
+            effective_last_event = self.last_event or db_last_event
+
+            # Atualiza memória pra refletir o consenso pós-merge — assim o próximo
+            # _pick_key deste processo também vê o que outros processos somaram.
+            for fp in self.fingerprints:
+                self.used_by_fp[fp] = int(merged.get(fp, 0))
+            # Mantém entradas de keys que saíram da config atual (para não perder
+            # consumo histórico do dia se o usuário readicionar a key depois).
+            for fp, val in merged.items():
+                if fp not in self.used_by_fp:
+                    self.used_by_fp[fp] = int(val)
+
+            payload_out = {
+                "date_utc": self.date_utc,
+                "used_by_fingerprint": {fp: int(v) for fp, v in merged.items()},
+                "last_event": effective_last_event,
+            }
+            value = json.dumps(payload_out, separators=(",", ":"))
+
             if row is None:
                 self.db.add(
                     AppSetting(
@@ -150,12 +264,39 @@ class YouTubeClient:
                 row.value = value
             self.db.commit()
         except Exception as exc:  # pragma: no cover
-            # Não derruba a request por causa de telemetria.
+            # Não derruba a request por causa de telemetria. Devolve os deltas
+            # pra fila local pra tentar de novo na próxima request.
             print(f"[youtube_client] falha ao persistir quota_usage_today: {exc}")
+            for fp, delta in deltas.items():
+                self._pending_delta_by_fp[fp] = (
+                    self._pending_delta_by_fp.get(fp, 0) + int(delta)
+                )
+            self._pending_exhausted_fp |= exhausted
             try:
                 self.db.rollback()
             except Exception:
                 pass
+
+    def _record_consumption(self, idx: int, cost: int, label: str) -> None:
+        fp = self.fingerprints[idx]
+        self.used_by_fp[fp] = int(self.used_by_fp.get(fp, 0)) + cost
+        self._pending_delta_by_fp[fp] = self._pending_delta_by_fp.get(fp, 0) + cost
+        self.last_event = {
+            "at": datetime.now(timezone.utc).isoformat(),
+            "label": label,
+            "cost": cost,
+            "key_index": idx,
+        }
+
+    def _mark_key_exhausted(self, idx: int) -> None:
+        """
+        Marca a key como esgotada (HTTP 403/quota). Não conta como delta de
+        consumo, mas o merge garante que a fingerprint sai do flush com pelo
+        menos `daily_quota` units, propagando a saturação a outros processos.
+        """
+        fp = self.fingerprints[idx]
+        self.used_by_fp[fp] = self.daily_quota
+        self._pending_exhausted_fp.add(fp)
 
     def _get(self, endpoint: str, params: dict, event_label: Optional[str] = None) -> dict:
         cost = QUOTA_COST.get(endpoint, 1)
@@ -177,13 +318,7 @@ class YouTubeClient:
                 raise RuntimeError(f"Erro de rede em {endpoint}: {ex}") from ex
 
             if r.status_code == 200:
-                self.used[idx] += cost
-                self.last_event = {
-                    "at": datetime.now(timezone.utc).isoformat(),
-                    "label": event_label or endpoint,
-                    "cost": cost,
-                    "key_index": idx,
-                }
+                self._record_consumption(idx, cost, event_label or endpoint)
                 self._persist_state()
                 return r.json()
 
@@ -191,7 +326,7 @@ class YouTubeClient:
             if r.status_code == 403 and ("quota" in body or "daily limit" in body):
                 # Key estourou no servidor — marca como esgotada e tenta próxima.
                 # Persiste pra próxima request já saber.
-                self.used[idx] = self.daily_quota
+                self._mark_key_exhausted(idx)
                 self._persist_state()
                 continue
 
@@ -309,64 +444,113 @@ class YouTubeClient:
         return None
 
 
-def _load_persisted_usage(db: Session, keys_count: int) -> tuple[list[int], Optional[dict], str]:
+def _coerce_used_by_fp(payload: dict, fingerprints: list[str]) -> dict[str, int]:
     """
-    Lê `app_settings.youtube.quota_usage_today` e devolve (used_per_key, last_event, date_utc).
+    Lê o uso persistido em qualquer um dos formatos suportados:
+
+    Formato novo (preferencial):
+        {"used_by_fingerprint": {"<fp>": <int>, ...}}
+
+    Formato antigo (compatibilidade):
+        {"used_per_key": [<int>, <int>, ...]}    (posicional)
+
+    No formato antigo, mapeamos posição → fingerprint atual. Se o tamanho não
+    bater, perdemos o que sobra — fail-safe pra não atribuir consumo a key errada.
+    """
+    new = payload.get("used_by_fingerprint")
+    if isinstance(new, dict):
+        out: dict[str, int] = {}
+        for k, v in new.items():
+            try:
+                out[str(k)] = int(v)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    legacy = payload.get("used_per_key")
+    if isinstance(legacy, list):
+        out = {}
+        for i, v in enumerate(legacy):
+            if i >= len(fingerprints):
+                break
+            try:
+                out[fingerprints[i]] = int(v)
+            except (TypeError, ValueError):
+                continue
+        return out
+
+    return {}
+
+
+def _load_persisted_state(
+    db: Session, fingerprints: list[str]
+) -> tuple[dict[str, int], Optional[dict], str]:
+    """
+    Lê `app_settings.youtube.quota_usage_today` e devolve
+    (used_by_fp, last_event, date_utc).
+
     Aplica rollover diário UTC: se a `date_utc` salva for diferente de hoje, zera
-    o vetor de uso e descarta last_event.
+    o uso e descarta last_event. Aceita formato novo (`used_by_fingerprint`) e
+    o formato antigo (`used_per_key` posicional) para compatibilidade.
     """
     today = _today_utc_str()
     row = db.query(AppSetting).filter_by(key=QUOTA_USAGE_SETTING_KEY).one_or_none()
     if row is None or not row.value:
-        return ([0] * keys_count, None, today)
+        return ({}, None, today)
     try:
         payload = json.loads(row.value)
     except (TypeError, ValueError):
-        return ([0] * keys_count, None, today)
+        return ({}, None, today)
 
-    saved_date = payload.get("date_utc") or today
-    saved_used = payload.get("used_per_key") or []
-    saved_event = payload.get("last_event")
-
+    saved_date = str(payload.get("date_utc") or today)
     if saved_date != today:
-        return ([0] * keys_count, None, today)
+        return ({}, None, today)
 
-    # Normaliza tamanho ao número atual de keys (usuário pode ter
-    # adicionado/removido keys entre uma sessão e outra).
-    used = [int(v) if isinstance(v, (int, float)) else 0 for v in saved_used]
-    used = (used + [0] * keys_count)[:keys_count]
-    return (used, saved_event, saved_date)
+    used_by_fp = _coerce_used_by_fp(payload, fingerprints=fingerprints)
+    last_event = payload.get("last_event")
+    return (used_by_fp, last_event, saved_date)
+
+
+def _decrypt_keys_from_db(db: Session) -> list[str]:
+    keys_row = db.query(AppSetting).filter_by(key="youtube.api_keys").one_or_none()
+    if not (keys_row and keys_row.value):
+        return []
+    try:
+        decrypted = decrypt(keys_row.value)
+    except Exception:  # pragma: no cover
+        return []
+    # Aceita keys separadas por vírgula OU quebra de linha (UI usa textarea
+    # multilinha; CSV continua funcionando pra compatibilidade).
+    return [
+        k.strip()
+        for k in decrypted.replace("\r\n", "\n").replace(",", "\n").split("\n")
+        if k.strip()
+    ]
+
+
+def _read_daily_quota(db: Session) -> int:
+    quota_row = db.query(AppSetting).filter_by(key="youtube.api_key_daily_quota").one_or_none()
+    if quota_row and quota_row.value:
+        try:
+            return int(quota_row.value)
+        except ValueError:
+            pass
+    return 10000
 
 
 def build_from_db(db: Session) -> YouTubeClient:
     """Monta o cliente lendo keys cifradas, quota e estado persistido do banco."""
-    keys_row = db.query(AppSetting).filter_by(key="youtube.api_keys").one_or_none()
-    quota_row = db.query(AppSetting).filter_by(key="youtube.api_key_daily_quota").one_or_none()
+    raw_keys = _decrypt_keys_from_db(db)
+    daily_quota = _read_daily_quota(db)
+    fingerprints = [_fingerprint(k) for k in raw_keys]
 
-    raw_keys: list[str] = []
-    if keys_row and keys_row.value:
-        decrypted = decrypt(keys_row.value)
-        # Aceita keys separadas por vírgula OU quebra de linha (UI usa textarea
-        # multilinha; CSV continua funcionando pra compatibilidade).
-        raw_keys = [
-            k.strip()
-            for k in decrypted.replace("\r\n", "\n").replace(",", "\n").split("\n")
-            if k.strip()
-        ]
-
-    daily_quota = 10000
-    if quota_row and quota_row.value:
-        try:
-            daily_quota = int(quota_row.value)
-        except ValueError:
-            pass
-
-    used, last_event, date_utc = _load_persisted_usage(db, len(raw_keys))
+    used_by_fp, last_event, date_utc = _load_persisted_state(db, fingerprints)
 
     return YouTubeClient(
         keys=raw_keys,
         daily_quota=daily_quota,
-        used=used,
+        fingerprints=fingerprints,
+        used_by_fp=dict(used_by_fp),
         db=db,
         date_utc=date_utc,
         last_event=last_event,
@@ -379,33 +563,22 @@ def read_quota_summary(db: Session) -> dict:
 
     Não chama o YouTube — só lê `app_settings`. Tolera ausência de keys
     (devolve totais zerados) e estado vazio (nunca consumiu nada hoje).
+
+    Mantém `used_per_key` no retorno (vetor por posição atual de keys) por
+    compatibilidade com o schema/UI; somatório `used` inclui consumo de keys
+    eventualmente removidas hoje, pra não esconder gasto real.
     """
-    keys_row = db.query(AppSetting).filter_by(key="youtube.api_keys").one_or_none()
-    quota_row = db.query(AppSetting).filter_by(key="youtube.api_key_daily_quota").one_or_none()
+    raw_keys = _decrypt_keys_from_db(db)
+    fingerprints = [_fingerprint(k) for k in raw_keys]
+    keys_count = len(raw_keys)
+    daily_quota = _read_daily_quota(db)
 
-    keys_count = 0
-    if keys_row and keys_row.value:
-        try:
-            decrypted = decrypt(keys_row.value)
-            keys_count = sum(
-                1
-                for k in decrypted.replace("\r\n", "\n").replace(",", "\n").split("\n")
-                if k.strip()
-            )
-        except Exception:  # pragma: no cover
-            keys_count = 0
+    used_by_fp, last_event, date_utc = _load_persisted_state(db, fingerprints)
 
-    daily_quota = 10000
-    if quota_row and quota_row.value:
-        try:
-            daily_quota = int(quota_row.value)
-        except ValueError:
-            pass
-
-    used, last_event, date_utc = _load_persisted_usage(db, keys_count)
-    used_total = sum(used)
+    used_per_key = [int(used_by_fp.get(fp, 0)) for fp in fingerprints]
+    used_total = sum(int(v) for v in used_by_fp.values())
     total_quota = keys_count * daily_quota
-    remaining = max(total_quota - used_total, 0)
+    remaining = max(total_quota - sum(used_per_key), 0)
 
     return {
         "date_utc": date_utc,
@@ -414,6 +587,6 @@ def read_quota_summary(db: Session) -> dict:
         "total_quota": total_quota,
         "used": used_total,
         "remaining": remaining,
-        "used_per_key": used,
+        "used_per_key": used_per_key,
         "last_event": last_event,
     }

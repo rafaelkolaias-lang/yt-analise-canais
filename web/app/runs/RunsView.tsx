@@ -235,7 +235,7 @@ export function RunsView({ syncRuns, discoveryRuns: initialDiscoveryRuns }: Prop
                   <td style={{ fontSize: 11 }}>{duration(r.started_at, r.finished_at)}</td>
                   <td style={{ textAlign: "right" }}>{r.channels_processed}</td>
                   <td style={{ textAlign: "right" }}>{r.videos_processed}</td>
-                  <td className="muted" style={{ fontSize: 11, maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={r.notes ?? undefined}>
+                  <td className="muted" style={{ fontSize: 11, minWidth: 240, whiteSpace: "normal", wordBreak: "break-word", verticalAlign: "top" }}>
                     {r.notes ?? "—"}
                   </td>
                 </tr>

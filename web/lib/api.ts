@@ -386,6 +386,10 @@ export type SyncStatus = {
   interval_hours: number;
   next_run_at: string | null;
   last_run: SyncRun | null;
+  // Saude do scheduler in-process. `false` = trigger provavelmente incorreto;
+  // dashboard mostra aviso e `next_run_at` pode mentir.
+  scheduler_ok?: boolean;
+  scheduler_error?: string | null;
 };
 
 // Resolve (input do usuário → canal ou vídeo)

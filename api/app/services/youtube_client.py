@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -44,6 +45,8 @@ from sqlalchemy.orm import Session
 
 from app.core.crypto import decrypt
 from app.models import AppSetting
+
+log = logging.getLogger(__name__)
 
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 
@@ -73,6 +76,16 @@ class InvalidAPIKey(RuntimeError):
 
 
 class NoAPIKeyConfigured(RuntimeError):
+    pass
+
+
+class APIKeyDecryptError(RuntimeError):
+    """
+    Levantada quando `youtube.api_keys` tem valor salvo mas o decrypt falha
+    (geralmente APP_SECRET_KEY trocada/perdida). Diferenciada de
+    `NoAPIKeyConfigured` para a UI mostrar mensagem específica em vez do
+    sintoma genérico "sem chave".
+    """
     pass
 
 
@@ -278,7 +291,11 @@ class YouTubeClient:
         except Exception as exc:  # pragma: no cover
             # Não derruba a request por causa de telemetria. Devolve os deltas
             # pra fila local pra tentar de novo na próxima request.
-            print(f"[youtube_client] falha ao persistir quota_usage_today: {exc}")
+            log.warning(
+                "[youtube_client] falha ao persistir quota_usage_today: %s",
+                exc,
+                exc_info=True,
+            )
             for fp, delta in deltas.items():
                 self._pending_delta_by_fp[fp] = (
                     self._pending_delta_by_fp.get(fp, 0) + int(delta)
@@ -286,6 +303,24 @@ class YouTubeClient:
             self._pending_exhausted_fp |= exhausted
             try:
                 self.db.rollback()
+            except Exception:
+                pass
+            # Cria/atualiza alerta operacional sob source_key fixo. Tolera
+            # falha — se o canal de notificacoes tambem estiver quebrado, o
+            # log estruturado acima ja registrou.
+            try:
+                from app.services import notifications_service
+
+                notifications_service.safe_system_alert(
+                    self.db,
+                    source_key="ops:quota_persist_failed",
+                    title="Cota da YouTube API: gravação degradada",
+                    message=(
+                        "Falha ao persistir consumo agregado da cota. "
+                        "O widget da sidebar pode mostrar valor desatualizado "
+                        f"até a próxima gravação bem-sucedida. Erro: {exc!s:.200}"
+                    ),
+                )
             except Exception:
                 pass
 
@@ -325,9 +360,34 @@ class YouTubeClient:
 
             youtube_keys_service.mark_burned(self.db, fp, reason=reason, label=reason)
         except Exception as exc:  # pragma: no cover
-            print(f"[youtube_client] falha ao persistir queimada de {fp}: {exc}")
+            log.warning(
+                "[youtube_client] falha ao persistir queimada de %s: %s",
+                fp,
+                exc,
+                exc_info=True,
+            )
             try:
                 self.db.rollback()
+            except Exception:
+                pass
+            # Sem persistir, o card vermelho de "chave queimada" pode nao
+            # aparecer e o cliente vai continuar tentando rotacionar nessa
+            # chave em outros processos. Vira alerta operacional.
+            try:
+                from app.services import notifications_service
+
+                notifications_service.safe_system_alert(
+                    self.db,
+                    source_key="ops:burned_key_persist_failed",
+                    title="Marca de chave queimada não foi salva",
+                    message=(
+                        f"Uma chave da YouTube API foi rejeitada ({reason}), "
+                        "mas não foi possível persistir o estado. Outros "
+                        "processos podem continuar tentando essa chave. "
+                        f"Erro: {exc!s:.200}"
+                    ),
+                    metadata={"fingerprint": fp, "reason": reason},
+                )
             except Exception:
                 pass
 
@@ -554,13 +614,28 @@ def _load_persisted_state(
 
 
 def _decrypt_keys_from_db(db: Session) -> list[str]:
+    """
+    Decifra `youtube.api_keys`. Diferencia:
+      - row ausente/vazia        → retorna [] ("sem chave configurada")
+      - decrypt falha            → levanta APIKeyDecryptError (config inválida)
+
+    Antes engolíamos qualquer falha de decrypt e retornávamos [], o que mostrava
+    "sem chave" pro usuário mesmo quando o problema era APP_SECRET_KEY trocada
+    — mascarava a causa real.
+    """
     keys_row = db.query(AppSetting).filter_by(key="youtube.api_keys").one_or_none()
     if not (keys_row and keys_row.value):
         return []
     try:
         decrypted = decrypt(keys_row.value)
-    except Exception:  # pragma: no cover
-        return []
+    except Exception as exc:  # pragma: no cover
+        log.warning(
+            "[youtube_client] decrypt de youtube.api_keys falhou: %s", exc, exc_info=True
+        )
+        raise APIKeyDecryptError(
+            "Não foi possível decifrar as chaves do YouTube. "
+            "APP_SECRET_KEY pode ter sido alterada ou estar incorreta."
+        ) from exc
     # Aceita keys separadas por vírgula OU quebra de linha (UI usa textarea
     # multilinha; CSV continua funcionando pra compatibilidade).
     return [
@@ -616,7 +691,14 @@ def read_quota_summary(db: Session) -> dict:
     compatibilidade com o schema/UI; somatório `used` inclui consumo de keys
     eventualmente removidas hoje, pra não esconder gasto real.
     """
-    raw_keys = _decrypt_keys_from_db(db)
+    # Falha de decrypt é diagnóstico (config inválida), não falta de chave.
+    # Aqui trata como "sem chaves visíveis" pra o widget de cota desenhar zeros
+    # em vez de quebrar — o card específico vem de quem realmente tenta usar
+    # a API (build_from_db).
+    try:
+        raw_keys = _decrypt_keys_from_db(db)
+    except APIKeyDecryptError:
+        raw_keys = []
     fingerprints = [_fingerprint(k) for k in raw_keys]
     keys_count = len(raw_keys)
     daily_quota = _read_daily_quota(db)

@@ -39,6 +39,22 @@ JOB_ID = "auto_sync"
 
 _scheduler: Optional[BackgroundScheduler] = None
 
+# Última falha conhecida do scheduler (start/reanchor). É consultada por
+# `/api/sync/status` para o frontend mostrar aviso no dashboard quando o
+# trigger não foi atualizado e o "próximo sync" exibido pode estar mentindo.
+# Limpa em chamada bem-sucedida de `reanchor`.
+_last_error: Optional[str] = None
+
+
+def last_error() -> Optional[str]:
+    """Última mensagem de erro do scheduler (start/reanchor), ou None se ok."""
+    return _last_error
+
+
+def is_running() -> bool:
+    """True quando o BackgroundScheduler está vivo e rodando."""
+    return _scheduler is not None and _scheduler.running
+
 
 def _current_interval_hours() -> int:
     """
@@ -114,31 +130,37 @@ def _run_job() -> None:
 
 def start() -> None:
     """Chamada uma vez no startup do FastAPI."""
-    global _scheduler
+    global _scheduler, _last_error
     if _scheduler is not None:
         return
 
-    hours = _current_interval_hours()
-    anchor = _last_sync_started_at()
-    _scheduler = BackgroundScheduler(timezone="UTC")
-    _scheduler.add_job(
-        _run_job,
-        trigger=_build_trigger(hours, anchor),
-        id=JOB_ID,
-        name="auto_sync",
-        misfire_grace_time=15 * 60,
-        coalesce=True,
-        max_instances=1,
-        replace_existing=True,
-    )
-    _scheduler.start()
-    if anchor is not None:
-        log.info(
-            "[scheduler] iniciado com intervalo de %sh, ancorado em ultimo sync %s",
-            hours, anchor.isoformat(),
+    try:
+        hours = _current_interval_hours()
+        anchor = _last_sync_started_at()
+        _scheduler = BackgroundScheduler(timezone="UTC")
+        _scheduler.add_job(
+            _run_job,
+            trigger=_build_trigger(hours, anchor),
+            id=JOB_ID,
+            name="auto_sync",
+            misfire_grace_time=15 * 60,
+            coalesce=True,
+            max_instances=1,
+            replace_existing=True,
         )
-    else:
-        log.info("[scheduler] iniciado com intervalo de %sh (sem sync anterior)", hours)
+        _scheduler.start()
+        _last_error = None
+        if anchor is not None:
+            log.info(
+                "[scheduler] iniciado com intervalo de %sh, ancorado em ultimo sync %s",
+                hours, anchor.isoformat(),
+            )
+        else:
+            log.info("[scheduler] iniciado com intervalo de %sh (sem sync anterior)", hours)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("[scheduler] start falhou: %s", exc)
+        _scheduler = None
+        _last_error = f"start falhou: {exc}"
 
 
 def shutdown() -> None:
@@ -151,9 +173,11 @@ def shutdown() -> None:
     log.info("[scheduler] desligado")
 
 
-def reanchor(anchor: Optional[datetime] = None, hours: Optional[int] = None) -> None:
+def reanchor(anchor: Optional[datetime] = None, hours: Optional[int] = None) -> bool:
     """
-    Re-ancora o job auto_sync.
+    Re-ancora o job auto_sync. Retorna True se reagendou com sucesso, False
+    caso contrário (scheduler não iniciado ou exceção). Em caso de falha,
+    grava `_last_error` para `/api/sync/status` expor pro frontend.
 
     Use depois de cada run_sync (manual ou scheduled) e quando a setting
     `sync_interval_hours` mudar. Sem `anchor` explícito, lê o último SyncRun
@@ -161,8 +185,9 @@ def reanchor(anchor: Optional[datetime] = None, hours: Optional[int] = None) -> 
 
     Quando não há nenhum SyncRun no banco, mantém o trigger em `now + hours`.
     """
+    global _last_error
     if _scheduler is None:
-        return
+        return False
     if hours is None:
         hours = _current_interval_hours()
     if anchor is None:
@@ -173,8 +198,12 @@ def reanchor(anchor: Optional[datetime] = None, hours: Optional[int] = None) -> 
             "[scheduler] reagendado: %sh, ancorado em %s",
             hours, anchor.isoformat() if anchor else "now",
         )
+        _last_error = None
+        return True
     except Exception as exc:  # noqa: BLE001
-        log.warning("[scheduler] reanchor falhou: %s", exc)
+        log.warning("[scheduler] reanchor falhou: %s", exc, exc_info=True)
+        _last_error = f"reanchor falhou: {exc}"
+        return False
 
 
 def reschedule(new_hours: int) -> None:

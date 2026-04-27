@@ -25,11 +25,33 @@ const STARTED_AT_STORAGE_KEY = "app.api.startedAt"; // persiste primeiro started
 // popover ao lado das notificacoes persistidas. Tipos suportados:
 //   - "api_offline": 3+ failures consecutivas no /api/version
 //   - "api_updated": started_at mudou desde a primeira leitura
-type LocalKind = "api_offline" | "api_updated";
+//   - "api_degraded": /api/version ok mas /api/health/ops em erro — banco
+//     acessivel mas algum subsistema (scheduler, tabelas, decrypt) caido.
+//   - "notifications_unreachable": 3+ falhas seguidas no feed de notificacoes
+//     persistidas. O sino fica cego e nada do feed atualiza.
+type LocalKind =
+  | "api_offline"
+  | "api_updated"
+  | "api_degraded"
+  | "notifications_unreachable";
 type LocalNotification = {
   kind: LocalKind;
   // Para api_offline: epoch ms da primeira falha; renderizamos "ha Xs".
   offline_since_ms?: number;
+  // Para api_degraded: detalhe vindo de /health/ops (qual check falhou).
+  detail?: string;
+};
+
+// Polling do /health/ops. Usa o mesmo cadence do version (60s) — barato e
+// chega rapido o suficiente.
+const POLL_OPS_MS = 60_000;
+// Falhas consecutivas no feed de notificacoes para considerar a central cega.
+const NOTIFICATIONS_OFFLINE_AFTER_FAILS = 3;
+
+type HealthOpsCheck = { ok: boolean; detail?: string | null };
+type HealthOpsResponse = {
+  status: "ok" | "error";
+  checks: Record<string, HealthOpsCheck>;
 };
 
 function fmtRelative(iso: string | null | undefined): string {
@@ -210,6 +232,44 @@ function ApiUpdatedCard() {
   );
 }
 
+function ApiDegradedCard({ detail }: { detail?: string }) {
+  // Estado intermediario entre "ok" e "offline": API responde versao mas
+  // /health/ops reporta falha em banco/scheduler/decrypt/tabelas.
+  return (
+    <div className="notif-card" style={{ borderLeft: "3px solid var(--danger)" }}>
+      <div className="notif-card-title" style={{ color: "var(--danger)" }}>
+        API degradada
+      </div>
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        Algum subsistema do backend está com falha (banco, agendador,
+        notificações ou chaves). Algumas telas podem ficar desatualizadas.
+      </div>
+      {detail && (
+        <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>
+          {detail}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NotificationsUnreachableCard() {
+  // Quando o feed de /api/notifications falha repetidamente, o usuario nao
+  // tem mais como saber de eventos do backend. O proprio canal de aviso
+  // caiu — esse card e a unica coisa que sobra.
+  return (
+    <div className="notif-card" style={{ borderLeft: "3px solid var(--danger)" }}>
+      <div className="notif-card-title" style={{ color: "var(--danger)" }}>
+        Central de notificações indisponível
+      </div>
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        Não foi possível ler notificações do backend. Você pode estar deixando
+        de receber avisos de sync, sugestões e falhas operacionais.
+      </div>
+    </div>
+  );
+}
+
 function BurnedKeysCard({ data }: { data: YouTubeKeysHealth | null }) {
   if (!data || data.burned <= 0) return null;
   return (
@@ -248,7 +308,39 @@ export function NotificationsCenter() {
   const [localNotifs, setLocalNotifs] = useState<LocalNotification[]>([]);
   const versionFailsRef = useRef(0);
   const offlineSinceRef = useRef<number | null>(null);
+  // Falhas consecutivas em /api/notifications/* — serve pra mostrar card
+  // "Central indisponivel" quando o proprio feed de notificacoes morre.
+  const notifFailsRef = useRef(0);
   const popoverRef = useRef<HTMLDivElement>(null);
+
+  const setLocal = useCallback(
+    (kind: LocalKind, patch: Partial<LocalNotification> = {}) => {
+      setLocalNotifs((prev) => {
+        const without = prev.filter((n) => n.kind !== kind);
+        return [...without, { kind, ...patch }];
+      });
+    },
+    [],
+  );
+  const clearLocal = useCallback((kind: LocalKind) => {
+    setLocalNotifs((prev) => prev.filter((n) => n.kind !== kind));
+  }, []);
+
+  // Conta falhas consecutivas pra detectar "central indisponivel". Ao atingir
+  // o threshold, mostra card local; em sucesso volta a zero.
+  const onFeedSuccess = useCallback(() => {
+    if (notifFailsRef.current >= NOTIFICATIONS_OFFLINE_AFTER_FAILS) {
+      clearLocal("notifications_unreachable");
+    }
+    notifFailsRef.current = 0;
+  }, [clearLocal]);
+
+  const onFeedFailure = useCallback(() => {
+    notifFailsRef.current += 1;
+    if (notifFailsRef.current === NOTIFICATIONS_OFFLINE_AFTER_FAILS) {
+      setLocal("notifications_unreachable");
+    }
+  }, [setLocal]);
 
   // Pull notifications + counters quando popover abre, ou pull leve só do counter
   // quando fechado. Os dois rodam em background continuamente.
@@ -259,10 +351,11 @@ export function NotificationsCenter() {
       );
       setItems(resp.items);
       setUnread(resp.unread_count);
+      onFeedSuccess();
     } catch {
-      // silencioso — popover tolera falha; counter continua tentando
+      onFeedFailure();
     }
-  }, []);
+  }, [onFeedFailure, onFeedSuccess]);
 
   const loadCounter = useCallback(async () => {
     try {
@@ -270,10 +363,11 @@ export function NotificationsCenter() {
         "/api/notifications/unread-count",
       );
       setUnread(resp.unread_count);
+      onFeedSuccess();
     } catch {
-      // silencioso — badge tolera falha de rede.
+      onFeedFailure();
     }
-  }, []);
+  }, [onFeedFailure, onFeedSuccess]);
 
   // Polling do counter (sempre ativo, mesmo com painel fechado).
   useEffect(() => {
@@ -325,16 +419,6 @@ export function NotificationsCenter() {
   // Notificacoes locais nao persistem — vivem so no state desta sessao.
   useEffect(() => {
     let cancelled = false;
-
-    function setLocal(kind: LocalKind, patch: Partial<LocalNotification> = {}) {
-      setLocalNotifs((prev) => {
-        const without = prev.filter((n) => n.kind !== kind);
-        return [...without, { kind, ...patch }];
-      });
-    }
-    function clearLocal(kind: LocalKind) {
-      setLocalNotifs((prev) => prev.filter((n) => n.kind !== kind));
-    }
 
     async function tick() {
       try {
@@ -388,7 +472,51 @@ export function NotificationsCenter() {
       cancelled = true;
       clearInterval(t);
     };
-  }, []);
+  }, [setLocal, clearLocal]);
+
+  // Polling do /api/health/ops: separa "API degradada" (versao OK + ops em
+  // erro) de "API offline" (versao nao responde). Quando offline, este check
+  // nem importa — o card `api_offline` ja cobre. Quando online com ops em
+  // erro, mostra `api_degraded` apontando o subsistema afetado.
+  useEffect(() => {
+    let cancelled = false;
+    async function tick() {
+      try {
+        const resp = await apiGet<HealthOpsResponse>("/api/health/ops");
+        if (cancelled) return;
+        if (resp.status === "ok") {
+          clearLocal("api_degraded");
+          return;
+        }
+        // Monta detalhe legivel a partir dos checks falhos.
+        const failed: string[] = [];
+        for (const [name, check] of Object.entries(resp.checks)) {
+          if (!check.ok) {
+            failed.push(check.detail ? `${name}: ${check.detail}` : name);
+          }
+        }
+        setLocal("api_degraded", {
+          detail: failed.length
+            ? `Subsistema(s): ${failed.join("; ").slice(0, 200)}`
+            : undefined,
+        });
+      } catch {
+        // /health/ops respondeu HTTP 503 (esperado quando degradado) — fetch
+        // joga error pra status != 2xx. Marcamos degradado com detalhe vazio,
+        // a menos que o version tambem esteja caindo (entao api_offline ja
+        // cobre e api_degraded pode ficar visivel mesmo assim — sao cards
+        // diferentes, nao mutuamente exclusivos).
+        if (cancelled) return;
+        setLocal("api_degraded");
+      }
+    }
+    void tick();
+    const t = setInterval(tick, POLL_OPS_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [setLocal, clearLocal]);
 
   // ESC fecha
   useEffect(() => {
@@ -458,15 +586,23 @@ export function NotificationsCenter() {
   }
 
   // ---- badge ----
-  // Prioridade: vermelho se ha chave queimada OU API offline; azul se ha
-  // notificacoes nao-lidas, redeploy detectado, ou qualquer outra notif local.
+  // Prioridade: vermelho se ha chave queimada, API offline, API degradada
+  // ou central de notificacoes indisponivel; azul se ha notificacoes nao-lidas
+  // ou redeploy detectado.
   // (A cota agora vive na sidebar — nao influencia o badge aqui.)
   const hasBurned = (health?.burned ?? 0) > 0;
   const hasOfflineLocal = localNotifs.some((n) => n.kind === "api_offline");
+  const hasDegradedLocal = localNotifs.some((n) => n.kind === "api_degraded");
+  const hasNotifsDownLocal = localNotifs.some(
+    (n) => n.kind === "notifications_unreachable",
+  );
   const hasUpdatedLocal = localNotifs.some((n) => n.kind === "api_updated");
   let badgeKind: "danger" | "info" | null = null;
-  if (hasBurned || hasOfflineLocal) badgeKind = "danger";
-  else if (unread > 0 || hasUpdatedLocal) badgeKind = "info";
+  if (hasBurned || hasOfflineLocal || hasDegradedLocal || hasNotifsDownLocal) {
+    badgeKind = "danger";
+  } else if (unread > 0 || hasUpdatedLocal) {
+    badgeKind = "info";
+  }
 
   return (
     <div className="notif-root" ref={popoverRef}>
@@ -527,6 +663,12 @@ export function NotificationsCenter() {
               }
               if (n.kind === "api_updated") {
                 return <ApiUpdatedCard key="api_updated" />;
+              }
+              if (n.kind === "api_degraded") {
+                return <ApiDegradedCard key="api_degraded" detail={n.detail} />;
+              }
+              if (n.kind === "notifications_unreachable") {
+                return <NotificationsUnreachableCard key="notifications_unreachable" />;
               }
               return null;
             })}

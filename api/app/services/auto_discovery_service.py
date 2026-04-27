@@ -167,7 +167,9 @@ def _calculate_budget(db: Session) -> int:
 
     try:
         client = youtube_client.build_from_db(db)
-    except youtube_client.NoAPIKeyConfigured:
+    except (youtube_client.NoAPIKeyConfigured, youtube_client.APIKeyDecryptError):
+        # Sem chave OU decrypt invalido: nao ha orcamento. O alerta especifico
+        # de decrypt e responsabilidade de quem chama o sync principal.
         return 0
 
     num_keys = len(client.keys)
@@ -180,11 +182,15 @@ def _calculate_budget(db: Session) -> int:
 def run_auto_discovery(db: Session) -> Optional[DiscoveryRun]:
     """
     Executa um ciclo de descoberta automática. Retorna o `DiscoveryRun`
-    criado, ou None se a execução foi pulada (sem termos / sem orçamento /
-    feature desligada).
+    criado, ou None se a execução foi pulada por motivo ESPERADO:
+      - feature desligada (`discovery.auto_enabled = false`);
+      - sem orçamento (sem keys ou `auto_quota_pct = 0`);
+      - sem termos (seed vazia + nada derivado).
 
-    NUNCA propaga exceção — o caller (sync_service) já registrou seu próprio
-    sucesso e não pode ser invalidado por uma falha aqui.
+    Erro inesperado (excecao do `run_discovery`, falha de banco, etc.)
+    PROPAGA pro caller (`sync_service`), que decide se vira alerta operacional.
+    Antes engolíamos tudo aqui — o resultado era a descoberta parar sem aviso
+    nenhum.
     """
     if not settings_reader.get_bool(db, "discovery.auto_enabled", True):
         return None
@@ -219,9 +225,4 @@ def run_auto_discovery(db: Session) -> Optional[DiscoveryRun]:
         max_channel_age_days=defaults["max_channel_age_days"],
     )
 
-    try:
-        return discovery_service.run_discovery(db, filters)
-    except Exception:
-        # Já foi marcado como `failed` no banco pelo run_discovery; não
-        # propaga.
-        return None
+    return discovery_service.run_discovery(db, filters)

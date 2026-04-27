@@ -23,3 +23,8 @@ class SyncStatusRead(BaseModel):
     interval_hours: int
     next_run_at: Optional[datetime] = None
     last_run: Optional[SyncRunRead] = None
+    # Saude do scheduler in-process. `False` significa que o trigger
+    # provavelmente nao esta correto (start ou reanchor falharam) e o
+    # `next_run_at` exibido pode mentir.
+    scheduler_ok: bool = True
+    scheduler_error: Optional[str] = None

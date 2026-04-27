@@ -58,7 +58,19 @@ def _check_suggestions_changed(db: Session) -> None:
         to_monitor = len(suggestions_service_v2.list_monitor_suggestions(db, limit=10_000))
         to_remove = len(suggestions_service_v2.list_dead_suggestions(db, limit=10_000))
     except Exception as exc:  # noqa: BLE001
-        log.warning("suggestions_changed: contagem de sugestoes falhou: %s", exc)
+        log.warning(
+            "suggestions_changed: contagem de sugestoes falhou: %s", exc, exc_info=True
+        )
+        notifications_service.safe_system_alert(
+            db,
+            source_key="ops:suggestions_check_failed",
+            title="Detecção de sugestões degradada",
+            message=(
+                "Não foi possível contar sugestões após o sync. "
+                "Você pode deixar de receber o card de novas sugestões "
+                f"até que isso seja resolvido. Erro: {exc!s:.200}"
+            ),
+        )
         return
 
     row = db.query(AppSetting).filter_by(key=_LAST_SUGGESTIONS_KEY).one_or_none()
@@ -125,11 +137,23 @@ def _check_suggestions_changed(db: Session) -> None:
             row.value = new_value
         db.commit()
     except Exception as exc:  # noqa: BLE001
-        log.warning("suggestions_changed: persistir contagem falhou: %s", exc)
+        log.warning(
+            "suggestions_changed: persistir contagem falhou: %s", exc, exc_info=True
+        )
         try:
             db.rollback()
         except Exception:
             pass
+        notifications_service.safe_system_alert(
+            db,
+            source_key="ops:suggestions_check_failed",
+            title="Detecção de sugestões degradada",
+            message=(
+                "Não foi possível persistir a contagem de sugestões após o "
+                "sync — o próximo card de novas sugestões pode disparar "
+                f"errado. Erro: {exc!s:.200}"
+            ),
+        )
 
 
 def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
@@ -301,7 +325,20 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
             from app.services import auto_discovery_service
             auto_discovery_service.run_auto_discovery(db)
         except Exception as exc:  # noqa: BLE001
-            log.warning("auto-discovery pos-sync falhou: %s", exc)
+            log.warning("auto-discovery pos-sync falhou: %s", exc, exc_info=True)
+            # Auto-discovery silenciosa antes só ia pro log. Vira alerta
+            # operacional pra o usuario perceber que a descoberta automatica
+            # parou de rodar (sync ainda foi sucesso, isso aqui é etapa pós).
+            notifications_service.safe_system_alert(
+                db,
+                source_key="ops:auto_discovery_failed",
+                title="Descoberta automática falhou",
+                message=(
+                    "O sync concluiu, mas a etapa de descoberta automática "
+                    f"posterior quebrou. Erro: {exc!s:.200}"
+                ),
+                metadata={"phase": "auto_discovery", "sync_run_id": run.id},
+            )
 
         # Etapa pós-sync: detecta novidades em sugestoes. Tem que vir DEPOIS
         # da auto-discovery (que pode ter criado novas sugestoes). Engole
@@ -317,9 +354,32 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         try:
             from app.core import scheduler
 
-            scheduler.reanchor(anchor=run.started_at)
+            ok = scheduler.reanchor(anchor=run.started_at)
+            if not ok:
+                # Trigger nao foi atualizado: o "proximo sync" exibido pode
+                # estar mentindo, e o sync automatico pode ficar fora do ritmo.
+                err = scheduler.last_error() or "scheduler retornou false"
+                notifications_service.safe_system_alert(
+                    db,
+                    source_key="ops:scheduler_reanchor_failed",
+                    title="Agendador degradado",
+                    message=(
+                        "Não foi possível reagendar o sync automático após o "
+                        "último run. O 'próximo sync' exibido no dashboard "
+                        f"pode estar incorreto. Erro: {err!s:.200}"
+                    ),
+                )
         except Exception as exc:  # noqa: BLE001
-            log.warning("scheduler reanchor pos-sync falhou: %s", exc)
+            log.warning("scheduler reanchor pos-sync falhou: %s", exc, exc_info=True)
+            notifications_service.safe_system_alert(
+                db,
+                source_key="ops:scheduler_reanchor_failed",
+                title="Agendador degradado",
+                message=(
+                    "Não foi possível reagendar o sync automático após o "
+                    f"último run. Erro: {exc!s:.200}"
+                ),
+            )
 
         return run
 
@@ -349,9 +409,33 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         try:
             from app.core import scheduler
 
-            scheduler.reanchor(anchor=run.started_at)
+            ok = scheduler.reanchor(anchor=run.started_at)
+            if not ok:
+                err = scheduler.last_error() or "scheduler retornou false"
+                notifications_service.safe_system_alert(
+                    db,
+                    source_key="ops:scheduler_reanchor_failed",
+                    title="Agendador degradado",
+                    message=(
+                        "Não foi possível reagendar o sync automático após "
+                        f"falha do run. Erro: {err!s:.200}"
+                    ),
+                )
         except Exception as reanchor_exc:  # noqa: BLE001
-            log.warning("scheduler reanchor pos-sync (failed) falhou: %s", reanchor_exc)
+            log.warning(
+                "scheduler reanchor pos-sync (failed) falhou: %s",
+                reanchor_exc,
+                exc_info=True,
+            )
+            notifications_service.safe_system_alert(
+                db,
+                source_key="ops:scheduler_reanchor_failed",
+                title="Agendador degradado",
+                message=(
+                    "Não foi possível reagendar o sync automático após "
+                    f"falha do run. Erro: {reanchor_exc!s:.200}"
+                ),
+            )
         raise
 
 

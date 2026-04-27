@@ -260,9 +260,46 @@ def safe_upsert(
     try:
         return upsert(db, **kwargs)
     except Exception as exc:  # pragma: no cover
-        log.warning("notifications.safe_upsert falhou: %s", exc)
+        # exc_info=True garante stack completo no container — necessário pra
+        # diagnosticar quebra da própria tabela de notificações (caso em que
+        # o canal de aviso primário fica cego e só sobra log estruturado).
+        log.warning("notifications.safe_upsert falhou: %s", exc, exc_info=True)
         try:
             db.rollback()
         except Exception:
             pass
         return None
+
+
+# ---------------------------------------------------------------------------
+# Alerta operacional (falha não-fatal em job/serviço)
+# ---------------------------------------------------------------------------
+def safe_system_alert(
+    db: Session,
+    *,
+    source_key: str,
+    title: str,
+    message: Optional[str] = None,
+    metadata: Optional[dict] = None,
+    status: str = "error",
+) -> Optional[Notification]:
+    """
+    Cria/atualiza uma notificação `type="system_alert"` para falhas operacionais
+    não-fatais (auto-discovery, scheduler, persistência de cota, etc.).
+
+    `source_key` deve ser estável por área de falha (ex: `ops:auto_discovery_failed`)
+    pra evitar spam: mesma falha repetida atualiza a mesma row em vez de criar
+    uma nova a cada ciclo.
+
+    Engole qualquer exceção — esta função é ela mesma um caminho de resiliência
+    e não pode derrubar o fluxo que a chamou.
+    """
+    return safe_upsert(
+        db,
+        type="system_alert",
+        status=status,
+        title=title,
+        message=message,
+        metadata=metadata,
+        source_key=source_key,
+    )

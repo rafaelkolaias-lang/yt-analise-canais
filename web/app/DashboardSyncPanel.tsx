@@ -67,6 +67,8 @@ export function DashboardSyncPanel({ initial }: Props) {
 
   const last = status?.last_run;
   const next = status?.next_run_at;
+  const schedulerOk = status?.scheduler_ok ?? true;
+  const schedulerError = status?.scheduler_error;
 
   return (
     <div className="card dashboard-sync-panel" style={{ display: "flex", alignItems: "center", gap: 18, flexWrap: "wrap" }}>
@@ -100,9 +102,19 @@ export function DashboardSyncPanel({ initial }: Props) {
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
           Próximo sync automático
         </div>
-        <div style={{ fontSize: 14, marginTop: 2 }}>{formatDateTime(next)}</div>
+        <div
+          style={{
+            fontSize: 14,
+            marginTop: 2,
+            color: schedulerOk ? undefined : "var(--danger)",
+          }}
+        >
+          {schedulerOk ? formatDateTime(next) : "Agendador indisponível"}
+        </div>
         <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-          {relativeFromNow(next)} · último sync + {status?.interval_hours ?? "?"}h
+          {schedulerOk
+            ? `${relativeFromNow(next)} · último sync + ${status?.interval_hours ?? "?"}h`
+            : schedulerError ?? "scheduler reportou erro — horário pode estar incorreto"}
         </div>
       </div>
 

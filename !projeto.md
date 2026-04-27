@@ -39,6 +39,19 @@ Em produção/local já existem:
 - **Endpoint `/api/version`** com `started_at` fixo no `lifespan`. Frontend faz polling 60s — 3 falhas = card local "API offline há Xs"; mudança de `started_at` (redeploy) = card local "API atualizada — recarregue".
 - **Notificação `suggestions_changed`** criada no fim de `run_sync` (após auto-discovery) quando `to_monitor` ou `to_remove` cresce desde a última rodada. Card no popover tem link "Ver sugestões →" para `/monitoramento?tab=suggestions`. Estado persistido em `notifications.last_suggestions_count`.
 - **Scheduler ancorado no último `SyncRun`**: regra "próximo sync automático = `ultimo_sync.started_at + sync_interval_hours`". O job `auto_sync` é re-ancorado depois de CADA `run_sync` (manual, scheduled, partial e failed) e quando `sync_interval_hours` muda. No startup, lê o último `SyncRun` para ancorar o `IntervalTrigger` com `start_date = ultimo + intervalo` (UTC). Sem nenhum sync no banco, mantém o trigger em `now + intervalo`. Eliminada a contradição "ultimo sync agora · próximo em 15h" no dashboard.
+- **Observabilidade operacional / falhas silenciosas tratadas**:
+  - Helper `notifications_service.safe_system_alert(source_key, title, message, ...)` cria/atualiza notificação `type=system_alert` por área de falha (idempotente via `source_key`).
+  - Source keys ativas: `ops:auto_discovery_failed`, `ops:suggestions_check_failed`, `ops:scheduler_reanchor_failed`, `ops:quota_persist_failed`, `ops:burned_key_persist_failed`.
+  - `auto_discovery_service.run_auto_discovery` agora PROPAGA exceção pro caller (em vez de engolir) — o `sync_service` traduz em alerta. Skips esperados (feature off, sem orçamento, sem termos) seguem retornando `None` silenciosamente.
+  - `youtube_client._decrypt_keys_from_db` levanta `APIKeyDecryptError` quando há valor salvo mas o decrypt falha (antes virava "sem chave"). Router `/api/sync/run` mapeia para HTTP 400 com mensagem específica.
+  - `prints` em `youtube_client._persist_state` e `_mark_key_burned` viraram `log.warning(..., exc_info=True)` + `safe_system_alert`.
+  - `safe_upsert` agora loga com `exc_info=True` (canal alternativo quando a tabela `notifications` está quebrada).
+  - **Healthchecks**:
+    - `GET /health/db` retorna **HTTP 503** quando o banco está inacessível (antes era 200 com JSON `{"status":"error"}`).
+    - `GET /health/notifications` valida leitura da tabela `notifications`.
+    - `GET /health/ops` agrega: banco, tabelas essenciais (`app_settings`, `notifications`, `sync_runs`), scheduler vivo + job registrado + `last_error()` nulo, decrypt das chaves YouTube quando há valor salvo. Retorna 503 se qualquer check falhar.
+  - **Scheduler**: novo `last_error()` e `is_running()`. `reanchor()` retorna `bool` (sucesso). `start()` agora captura exceção e grava `_last_error`. `/api/sync/status` expõe `scheduler_ok` e `scheduler_error`; `DashboardSyncPanel` mostra "Agendador indisponível" em vermelho quando `scheduler_ok=false`.
+  - **Frontend `NotificationsCenter`** ganhou 2 cards locais novos: `api_degraded` (versão OK + `/health/ops` em erro, com detalhe do subsistema afetado) e `notifications_unreachable` (3 falhas seguidas em `loadList`/`loadCounter`). Badge vermelho cobre os dois também.
 
 Pontos importantes recentes:
 - Os services antigos `analytics_service.py` e `suggestions_service.py` foram removidos.
@@ -170,10 +183,11 @@ yt-analise-canais-web/
 |---|---|
 | Bootstrap FastAPI, CORS, lifespan | `api/app/main.py` |
 | Endpoint heartbeat `/api/version` (`{version, started_at}`) | `api/app/main.py` (`APP_VERSION`, `APP_STARTED_AT`, `app_version()`) |
+| Healthchecks (`/health`, `/health/db`, `/health/notifications`, `/health/ops`) | `api/app/routers/health.py` |
 | Configuração via `.env` | `api/app/core/config.py`, `api/.env.example` |
 | Banco / sessão SQLAlchemy | `api/app/core/database.py` |
 | Criptografia de secrets | `api/app/core/crypto.py` |
-| Scheduler / reagendamento do sync (ancorado no último `SyncRun`) | `api/app/core/scheduler.py` |
+| Scheduler / reagendamento + saúde (`is_running`, `last_error`) | `api/app/core/scheduler.py` |
 | Models / schema real do banco | `api/app/models/domain.py` |
 | Migrações | `api/migrations/env.py`, `api/migrations/versions/*` |
 | Seed / defaults de `app_settings` | `api/app/seed.py` |
@@ -282,7 +296,7 @@ O Analytics ativo já contempla:
 | Assunto | Arquivos |
 |---|---|
 | Tabela e model de notificações persistentes | `api/app/models/domain.py` (`Notification`), migration `a1c5e9d8b3f0_add_notifications_table.py` |
-| Service (CRUD + cap FIFO) | `api/app/services/notifications_service.py` |
+| Service (CRUD + cap FIFO + `safe_upsert` + `safe_system_alert`) | `api/app/services/notifications_service.py` |
 | Endpoints persistidos + `quota-summary` (feed do widget da sidebar) | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py` |
 | Componente global / popover | `web/components/NotificationsCenter.tsx` |
 | Widget de cota fixo na sidebar | `web/components/QuotaSidebarWidget.tsx` (renderizado em `web/components/Sidebar.tsx`) |

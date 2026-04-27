@@ -217,7 +217,7 @@ Observações atuais do monitoramento:
 Regras atuais de sugestões:
 - `to-monitor`: canais descobertos, ainda não monitorados, com critérios de VPD/idade/blacklist.
 - `to-remove`: canais ativos com sinais de canal morto.
-- Há suporte para breakout precoce nas sugestões via settings `suggestions.monitor_breakout_*`.
+- Há suporte para Canal Viral nas sugestões via settings `suggestions.monitor_breakout_*` (chaves de settings mantêm o nome `breakout_*` por compatibilidade; o termo exibido na UI é "Canal Viral").
 
 ### Analytics
 
@@ -233,7 +233,7 @@ O Analytics ativo já contempla:
 - `median_recent_views`;
 - crescimento em 7d, 30d e 90d;
 - consistência de crescimento;
-- breakout precoce (`breakout_candidate`, `breakout_reason`);
+- Canal Viral (campos `breakout_candidate`, `breakout_reason` mantidos por compat; UI exibe "Canal Viral");
 - `niches()` coerente com canais que realmente têm snapshot.
 
 ### Notificações internas

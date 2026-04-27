@@ -1879,7 +1879,7 @@ function SuggestionsToMonitor({
         <h3 style={{ margin: 0, fontSize: 14 }}>
           Recomendados para monitorar{" "}
           <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>
-            (canais novos com VPD alto ou breakout precoce, ainda fora do monitoramento)
+            (canais novos com VPD alto ou Canal Viral, ainda fora do monitoramento)
           </span>
         </h3>
       </header>
@@ -1915,9 +1915,9 @@ function SuggestionsToMonitor({
                         </a>
                         <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
                           {s.suggestion_kind === "early_breakout"
-                            ? "breakout precoce"
+                            ? "Canal Viral"
                             : s.suggestion_kind === "mixed"
-                            ? "breakout + VPD alto"
+                            ? "Canal Viral + VPD alto"
                             : "canal jovem com VPD alto"}
                         </div>
                       </div>

@@ -373,7 +373,7 @@ export function AnalyticsView({ niches }: Props) {
                             fontSize: 11,
                           }}
                         >
-                          breakout precoce
+                          Canal Viral
                           <span style={{ color: "var(--text-dim)" }}>
                             {summary.breakout_reason}
                           </span>

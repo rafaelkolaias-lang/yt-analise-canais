@@ -105,7 +105,7 @@ def list_monitor_suggestions(db: Session, limit: int = 100) -> list[dict]:
         if early_breakout:
             suggestion_kind = "early_breakout" if not young_high_vpd else "mixed"
             reason_parts.append(
-                "breakout precoce: "
+                "Canal Viral: "
                 f"{row.video_count or 0} video(s), {row.subscribers or 0} inscritos e "
                 f"top video com {int(best_video.views or 0)} views"
             )

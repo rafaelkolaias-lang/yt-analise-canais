@@ -83,7 +83,7 @@ const SECTIONS: Section[] = [
       },
       {
         id: "monitor-breakout",
-        title: "Sugerir breakout precoce",
+        title: "Sugerir Canal Viral",
         description:
           "Canal pequeno e novo, com poucos vídeos, mas com um vídeo desproporcional. Todas as condições valem em conjunto (E lógico).",
         match: (k) => k.startsWith("suggestions.monitor_breakout_"),

@@ -171,7 +171,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value_type": "int",
         "description": (
             "Quantos vídeos recentes o Analytics usa para calcular a MEDIANA de views "
-            "(que entra na regra de breakout precoce). 5 = pega os 5 vídeos mais "
+            "(que entra na regra de Canal Viral). 5 = pega os 5 vídeos mais "
             "recentes do canal e tira a mediana."
         ),
     },
@@ -180,7 +180,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "10000",
         "value_type": "int",
         "description": (
-            "Para sinalizar 'breakout precoce' no Analytics, o canal precisa ter MENOS "
+            "Para sinalizar 'Canal Viral' no Analytics, o canal precisa ter MENOS "
             "inscritos que isso. A ideia é flagrar canal pequeno com vídeo "
             "desproporcionalmente grande (sinal de descolamento)."
         ),
@@ -190,7 +190,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "50000",
         "value_type": "int",
         "description": (
-            "Para 'breakout precoce', a mediana de views dos últimos uploads precisa "
+            "Para 'Canal Viral', a mediana de views dos últimos uploads precisa "
             "ser ≥ esse valor. Mediana alta + canal pequeno = vídeo desproporcional."
         ),
     },
@@ -199,7 +199,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "5",
         "value_type": "float",
         "description": (
-            "Para 'breakout precoce', a mediana de views recentes precisa ser pelo "
+            "Para 'Canal Viral', a mediana de views recentes precisa ser pelo "
             "menos N vezes maior que os inscritos. Ex.: 5 = mediana de views ≥ 5x "
             "inscritos. Mede o quanto o conteúdo está performando ALÉM da audiência."
         ),
@@ -320,7 +320,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "10000",
         "value_type": "int",
         "description": (
-            "Regra de breakout precoce: canal precisa ter MENOS inscritos que isso. "
+            "Regra de Canal Viral: canal precisa ter MENOS inscritos que isso. "
             "Todas as 5 regras 'breakout_*' valem em conjunto (E lógico)."
         ),
     },
@@ -329,7 +329,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "30",
         "value_type": "int",
         "description": (
-            "Regra de breakout precoce: idade do canal ≤ esse valor (em dias). "
+            "Regra de Canal Viral: idade do canal ≤ esse valor (em dias). "
             "Combina com as outras 'breakout_*' no E lógico."
         ),
     },
@@ -338,7 +338,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "3",
         "value_type": "int",
         "description": (
-            "Regra de breakout precoce: canal precisa ter MENOS que esse número TOTAL "
+            "Regra de Canal Viral: canal precisa ter MENOS que esse número TOTAL "
             "de vídeos. A ideia é pegar canal com pouquíssimo conteúdo já estourando."
         ),
     },
@@ -347,7 +347,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "50000",
         "value_type": "int",
         "description": (
-            "Regra de breakout precoce: o melhor vídeo descoberto do canal precisa "
+            "Regra de Canal Viral: o melhor vídeo descoberto do canal precisa "
             "ter PELO MENOS esse número de views."
         ),
     },
@@ -356,7 +356,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": "2000",
         "value_type": "int",
         "description": (
-            "Regra de breakout precoce: VPD do melhor vídeo descoberto precisa ser ≥ "
+            "Regra de Canal Viral: VPD do melhor vídeo descoberto precisa ser ≥ "
             "esse valor."
         ),
     },

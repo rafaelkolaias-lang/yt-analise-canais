@@ -24,12 +24,17 @@ from __future__ import annotations
 
 import json
 import logging
+import traceback
 from datetime import datetime
 from typing import Any, Optional
 
 from sqlalchemy.orm import Session
 
 from app.models import Notification
+
+# Tamanho maximo do traceback embutido em metadata.error. ~6KB cobre stack
+# tipico sem inflar `notifications.metadata_json`.
+_ERROR_DETAIL_MAX = 6000
 
 log = logging.getLogger(__name__)
 
@@ -274,6 +279,37 @@ def safe_upsert(
 # ---------------------------------------------------------------------------
 # Alerta operacional (falha não-fatal em job/serviço)
 # ---------------------------------------------------------------------------
+def _build_error_metadata(
+    exc: BaseException, extra: Optional[dict] = None
+) -> dict:
+    """
+    Constrói o metadata padrão de um alerta operacional embutindo:
+      - `error_type`: nome da classe da exceção (ex: `OperationalError`).
+      - `error`: `repr(exc)` curto (linha única) — bom pra ler no card.
+      - `traceback`: stack completo formatado (até `_ERROR_DETAIL_MAX` chars),
+        consumido pelo botão "Ver detalhes" no frontend.
+
+    Mantém entradas em `extra` (`phase`, `sync_run_id`, `fingerprint`, …) sem
+    sobrescrever as chaves padrão.
+    """
+    tb = "".join(
+        traceback.format_exception(type(exc), exc, exc.__traceback__)
+    )
+    if len(tb) > _ERROR_DETAIL_MAX:
+        # Mantém o final do stack (onde está o frame que estourou) e marca
+        # truncamento.
+        tb = "[...truncado...]\n" + tb[-_ERROR_DETAIL_MAX:]
+    out: dict = {
+        "error_type": type(exc).__name__,
+        "error": repr(exc)[:500],
+        "traceback": tb,
+    }
+    if extra:
+        for k, v in extra.items():
+            out.setdefault(k, v)
+    return out
+
+
 def safe_system_alert(
     db: Session,
     *,
@@ -282,6 +318,7 @@ def safe_system_alert(
     message: Optional[str] = None,
     metadata: Optional[dict] = None,
     status: str = "error",
+    exc: Optional[BaseException] = None,
 ) -> Optional[Notification]:
     """
     Cria/atualiza uma notificação `type="system_alert"` para falhas operacionais
@@ -291,15 +328,26 @@ def safe_system_alert(
     pra evitar spam: mesma falha repetida atualiza a mesma row em vez de criar
     uma nova a cada ciclo.
 
+    Quando `exc` é passada, o metadata é enriquecido automaticamente com
+    `error_type`, `error` (repr curto) e `traceback` completo — o frontend
+    consome essas chaves no botão "Ver detalhes". `metadata` extra é mesclado
+    sem sobrescrever as chaves padrão.
+
     Engole qualquer exceção — esta função é ela mesma um caminho de resiliência
     e não pode derrubar o fluxo que a chamou.
     """
+    final_metadata: Optional[dict]
+    if exc is not None:
+        final_metadata = _build_error_metadata(exc, extra=metadata)
+    else:
+        final_metadata = metadata
+
     return safe_upsert(
         db,
         type="system_alert",
         status=status,
         title=title,
         message=message,
-        metadata=metadata,
+        metadata=final_metadata,
         source_key=source_key,
     )

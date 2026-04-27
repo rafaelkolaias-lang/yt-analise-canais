@@ -58,6 +58,153 @@ type HealthOpsResponse = {
   checks: Record<string, HealthOpsCheck>;
 };
 
+// Estado retornado pelo /api/health/ops (tipado para uso fora do polling).
+type HealthOpsState = HealthOpsResponse | { error: string } | null;
+
+// =====================================================================
+// Helpers de detalhe / copiar
+// =====================================================================
+
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fallback abaixo
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Linha "Ver detalhes ▾ / Copiar" + bloco <pre> com o texto bruto.
+ *
+ * Usado nos cards de erro (system_alert persistido, ApiDegraded, etc.) para
+ * permitir colar o stack na conversa sem poluir o popover quando fechado.
+ */
+function DetailsToggle({
+  label = "Ver detalhes",
+  text,
+}: {
+  label?: string;
+  text: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function onCopy(e: React.MouseEvent) {
+    e.stopPropagation();
+    const ok = await copyToClipboard(text);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    }
+  }
+
+  return (
+    <div style={{ marginTop: 6, fontSize: 11 }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            setOpen((v) => !v);
+          }}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            padding: 0,
+            fontSize: 11,
+            textDecoration: "underline",
+          }}
+        >
+          {open ? `${label} ▴` : `${label} ▾`}
+        </button>
+        <button
+          type="button"
+          onClick={onCopy}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            padding: 0,
+            fontSize: 11,
+            textDecoration: "underline",
+          }}
+        >
+          {copied ? "copiado!" : "Copiar"}
+        </button>
+      </div>
+      {open && (
+        <pre
+          style={{
+            marginTop: 6,
+            padding: 8,
+            background: "var(--bg)",
+            border: "1px solid var(--border)",
+            borderRadius: 4,
+            fontSize: 10,
+            lineHeight: 1.4,
+            maxHeight: 240,
+            overflow: "auto",
+            whiteSpace: "pre-wrap",
+            wordBreak: "break-word",
+          }}
+        >
+          {text}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Tenta extrair o detalhe técnico (`error`/`traceback`) do `metadata_json` de
+ * uma notificação persistente. Retorna texto pronto pra `<DetailsToggle text=...>`.
+ * Se não houver `error`/`traceback`, devolve o JSON inteiro como fallback.
+ */
+function extractItemErrorText(item: NotificationItem): string | null {
+  if (!item.metadata_json) return null;
+  try {
+    const meta = JSON.parse(item.metadata_json) as Record<string, unknown>;
+    const errType = typeof meta.error_type === "string" ? meta.error_type : null;
+    const errMsg = typeof meta.error === "string" ? meta.error : null;
+    const tb = typeof meta.traceback === "string" ? meta.traceback : null;
+    const lines: string[] = [];
+    if (errType || errMsg) {
+      lines.push([errType, errMsg].filter(Boolean).join(": "));
+    }
+    if (tb) {
+      lines.push("");
+      lines.push(tb);
+    }
+    if (lines.length === 0) {
+      // Sem campos de erro padrao — mostra o JSON inteiro como fallback util
+      // (notificacoes nao-erro tambem podem expor detalhes assim).
+      return JSON.stringify(meta, null, 2);
+    }
+    return lines.join("\n");
+  } catch {
+    return item.metadata_json;
+  }
+}
+
 function fmtRelative(iso: string | null | undefined): string {
   if (!iso) return "—";
   const then = new Date(iso).getTime();
@@ -96,6 +243,13 @@ function NotificationCard({
   const unread = item.read_at == null;
   const accent = STATUS_COLOR[item.status] ?? "var(--text-dim)";
   const isSuggestionsChanged = item.type === "suggestions_changed";
+  // Detalhe tecnico (traceback + error_type + repr) so e exposto pra alertas
+  // operacionais e erros — em sucesso/progresso/info nao faz sentido. Ainda
+  // assim, se houver metadata_json em info, mostramos como fallback.
+  const detailText =
+    item.status === "error" || item.type === "system_alert"
+      ? extractItemErrorText(item)
+      : null;
 
   return (
     <div
@@ -136,6 +290,7 @@ function NotificationCard({
               </a>
             </div>
           )}
+          {detailText && <DetailsToggle text={detailText} />}
           {isRunning && item.progress_pct != null && (
             <div
               aria-label="progresso"
@@ -236,9 +391,20 @@ function ApiUpdatedCard() {
   );
 }
 
-function ApiDegradedCard({ detail }: { detail?: string }) {
+function ApiDegradedCard({
+  detail,
+  ops,
+}: {
+  detail?: string;
+  ops?: HealthOpsState;
+}) {
   // Estado intermediario entre "ok" e "offline": API responde versao mas
   // /health/ops reporta falha em banco/scheduler/decrypt/tabelas.
+  // detailsText prioriza ops cru (JSON com todos os checks); cai pra
+  // string concatenada se nao houver ops.
+  let detailsText: string | null = null;
+  if (ops) detailsText = JSON.stringify(ops, null, 2);
+  else if (detail) detailsText = detail;
   return (
     <div className="notif-card" style={{ borderLeft: "3px solid var(--danger)" }}>
       <div className="notif-card-title" style={{ color: "var(--danger)" }}>
@@ -253,11 +419,16 @@ function ApiDegradedCard({ detail }: { detail?: string }) {
           {detail}
         </div>
       )}
+      {detailsText && <DetailsToggle text={detailsText} />}
     </div>
   );
 }
 
-function NotificationsUnreachableCard() {
+function NotificationsUnreachableCard({
+  lastError,
+}: {
+  lastError?: string | null;
+}) {
   // Quando o feed de /api/notifications falha repetidamente, o usuario nao
   // tem mais como saber de eventos do backend. O proprio canal de aviso
   // caiu — esse card e a unica coisa que sobra.
@@ -270,6 +441,7 @@ function NotificationsUnreachableCard() {
         Não foi possível ler notificações do backend. Você pode estar deixando
         de receber avisos de sync, sugestões e falhas operacionais.
       </div>
+      {lastError && <DetailsToggle text={lastError} />}
     </div>
   );
 }
@@ -315,9 +487,15 @@ export function NotificationsCenter() {
   // Falhas consecutivas em /api/notifications/* — serve pra mostrar card
   // "Central indisponivel" quando o proprio feed de notificacoes morre.
   const notifFailsRef = useRef(0);
+  // Ultimo erro capturado em loadList/loadCounter — exposto no card
+  // "Central indisponivel" via DetailsToggle.
+  const [notifLastError, setNotifLastError] = useState<string | null>(null);
   // Falhas consecutivas em /api/health/ops — evita card "API degradada"
   // piscar logo apos redeploy enquanto subsistemas terminam de subir.
   const opsFailsRef = useRef(0);
+  // Ultimo estado conhecido de /api/health/ops — exposto no card "API
+  // degradada" via DetailsToggle (mostra todos os checks cru).
+  const [opsState, setOpsState] = useState<HealthOpsState>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const setLocal = useCallback(
@@ -340,14 +518,19 @@ export function NotificationsCenter() {
       clearLocal("notifications_unreachable");
     }
     notifFailsRef.current = 0;
+    setNotifLastError(null);
   }, [clearLocal]);
 
-  const onFeedFailure = useCallback(() => {
-    notifFailsRef.current += 1;
-    if (notifFailsRef.current === NOTIFICATIONS_OFFLINE_AFTER_FAILS) {
-      setLocal("notifications_unreachable");
-    }
-  }, [setLocal]);
+  const onFeedFailure = useCallback(
+    (err: unknown) => {
+      notifFailsRef.current += 1;
+      setNotifLastError(err instanceof Error ? err.message : String(err));
+      if (notifFailsRef.current === NOTIFICATIONS_OFFLINE_AFTER_FAILS) {
+        setLocal("notifications_unreachable");
+      }
+    },
+    [setLocal],
+  );
 
   // Pull notifications + counters quando popover abre, ou pull leve só do counter
   // quando fechado. Os dois rodam em background continuamente.
@@ -359,8 +542,8 @@ export function NotificationsCenter() {
       setItems(resp.items);
       setUnread(resp.unread_count);
       onFeedSuccess();
-    } catch {
-      onFeedFailure();
+    } catch (err) {
+      onFeedFailure(err);
     }
   }, [onFeedFailure, onFeedSuccess]);
 
@@ -371,8 +554,8 @@ export function NotificationsCenter() {
       );
       setUnread(resp.unread_count);
       onFeedSuccess();
-    } catch {
-      onFeedFailure();
+    } catch (err) {
+      onFeedFailure(err);
     }
   }, [onFeedFailure, onFeedSuccess]);
 
@@ -491,6 +674,7 @@ export function NotificationsCenter() {
       try {
         const resp = await apiGet<HealthOpsResponse>("/api/health/ops");
         if (cancelled) return;
+        setOpsState(resp);
         if (resp.status === "ok") {
           opsFailsRef.current = 0;
           clearLocal("api_degraded");
@@ -511,11 +695,14 @@ export function NotificationsCenter() {
               : undefined,
           });
         }
-      } catch {
+      } catch (err) {
         // /health/ops respondeu HTTP 503 (esperado quando degradado) — fetch
         // joga error pra status != 2xx. Tambem cai aqui em 404 (api desatualizada
         // sem /api/health/ops) — nao confundir com degradacao real.
         if (cancelled) return;
+        setOpsState({
+          error: err instanceof Error ? err.message : String(err),
+        });
         opsFailsRef.current += 1;
         if (opsFailsRef.current >= OPS_DEGRADED_AFTER_FAILS) {
           setLocal("api_degraded");
@@ -677,10 +864,21 @@ export function NotificationsCenter() {
                 return <ApiUpdatedCard key="api_updated" />;
               }
               if (n.kind === "api_degraded") {
-                return <ApiDegradedCard key="api_degraded" detail={n.detail} />;
+                return (
+                  <ApiDegradedCard
+                    key="api_degraded"
+                    detail={n.detail}
+                    ops={opsState}
+                  />
+                );
               }
               if (n.kind === "notifications_unreachable") {
-                return <NotificationsUnreachableCard key="notifications_unreachable" />;
+                return (
+                  <NotificationsUnreachableCard
+                    key="notifications_unreachable"
+                    lastError={notifLastError}
+                  />
+                );
               }
               return null;
             })}

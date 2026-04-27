@@ -318,8 +318,9 @@ class YouTubeClient:
                     message=(
                         "Falha ao persistir consumo agregado da cota. "
                         "O widget da sidebar pode mostrar valor desatualizado "
-                        f"até a próxima gravação bem-sucedida. Erro: {exc!s:.200}"
+                        "até a próxima gravação bem-sucedida."
                     ),
+                    exc=exc,
                 )
             except Exception:
                 pass
@@ -383,10 +384,10 @@ class YouTubeClient:
                     message=(
                         f"Uma chave da YouTube API foi rejeitada ({reason}), "
                         "mas não foi possível persistir o estado. Outros "
-                        "processos podem continuar tentando essa chave. "
-                        f"Erro: {exc!s:.200}"
+                        "processos podem continuar tentando essa chave."
                     ),
                     metadata={"fingerprint": fp, "reason": reason},
+                    exc=exc,
                 )
             except Exception:
                 pass

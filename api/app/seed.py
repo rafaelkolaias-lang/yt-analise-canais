@@ -255,6 +255,15 @@ DEFAULT_SETTINGS: list[dict] = [
         "value_type": "int",
         "description": "7.3.2 — VPD máximo para considerar o canal 'morto'.",
     },
+    # -------------------------------------------------------------
+    # Notificações — estado interno (escondido da UI via INTERNAL_KEYS)
+    # -------------------------------------------------------------
+    {
+        "key": "notifications.last_suggestions_count",
+        "value": None,
+        "value_type": "json",
+        "description": "9.1 — Estado interno: última contagem de sugestões para detectar novidades (não mexa).",
+    },
 ]
 
 

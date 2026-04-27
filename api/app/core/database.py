@@ -11,6 +11,11 @@ engine = create_engine(
     settings.database_url,
     pool_pre_ping=True,
     pool_recycle=3600,
+    # Pool padrão (5+10) era pequeno demais quando a UI dispara várias
+    # requests em paralelo (ex: aba "Best" carrega N canais ao mesmo tempo).
+    # 10 fixas + 20 de overflow = teto de 30 conexões.
+    pool_size=10,
+    max_overflow=20,
     future=True,
 )
 

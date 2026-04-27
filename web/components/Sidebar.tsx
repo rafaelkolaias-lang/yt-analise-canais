@@ -4,6 +4,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { QuotaSidebarWidget } from "@/components/QuotaSidebarWidget";
+
 const items = [
   { href: "/", label: "Dashboard" },
   { href: "/descoberta", label: "Descoberta" },
@@ -83,6 +85,7 @@ export function Sidebar() {
             );
           })}
         </nav>
+        <QuotaSidebarWidget />
       </aside>
     </>
   );

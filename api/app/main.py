@@ -1,4 +1,5 @@
 from contextlib import asynccontextmanager
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,9 +20,17 @@ from app.routers import (
 
 settings = get_settings()
 
+APP_VERSION = "0.1.0"
+
+# `started_at` deve ser FIXO durante a vida do processo. Define-se uma vez no
+# lifespan; o frontend usa esse valor para detectar redeploy (mudou → reload).
+APP_STARTED_AT: datetime | None = None
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    global APP_STARTED_AT
+    APP_STARTED_AT = datetime.utcnow()
     scheduler.start()
     try:
         yield
@@ -31,7 +40,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title="youtube-analyzer API",
-    version="0.1.0",
+    version=APP_VERSION,
     description="API do sistema web youtube-analyzer (descoberta, monitoramento e analytics de canais).",
     lifespan=lifespan,
 )
@@ -62,4 +71,23 @@ def root() -> dict:
         "env": settings.app_env,
         "docs": "/docs",
         "health": "/health",
+    }
+
+
+@app.get("/api/version", tags=["root"])
+def app_version() -> dict:
+    """
+    Informa a versao do app e o instante em que o processo subiu.
+
+    O frontend faz polling deste endpoint para detectar:
+      - **API offline**: 3 falhas consecutivas → notif local "API offline há Xs".
+      - **API atualizada**: `started_at` mudou → notif local "API atualizada
+        — recarregue" com botao reload.
+
+    `started_at` e fixado no `lifespan` no boot do processo, por isso muda
+    SEMPRE que ha redeploy.
+    """
+    return {
+        "version": APP_VERSION,
+        "started_at": APP_STARTED_AT.isoformat() if APP_STARTED_AT else None,
     }

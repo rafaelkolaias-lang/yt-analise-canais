@@ -122,6 +122,43 @@ export type YouTubeKeysHealth = {
 };
 
 // =============================================================================
+// Notificações persistentes (tabela `notifications`)
+// =============================================================================
+export type NotificationStatus = "running" | "success" | "error" | "info";
+
+export type NotificationType =
+  | "task_progress"
+  | "task_done"
+  | "task_error"
+  | "system_alert"
+  | "suggestions_changed"
+  | string; // permite tipos novos sem refator
+
+export type NotificationItem = {
+  id: number;
+  type: NotificationType;
+  status: NotificationStatus;
+  title: string;
+  message: string | null;
+  progress_pct: number | null;
+  metadata_json: string | null;
+  source_key: string | null;
+  created_at: string;
+  updated_at: string;
+  read_at: string | null;
+  dismissed_at: string | null;
+};
+
+export type NotificationsListResponse = {
+  items: NotificationItem[];
+  unread_count: number;
+};
+
+export type UnreadCountResponse = { unread_count: number };
+
+export type NotificationOpResponse = { id: number; changed: boolean };
+
+// =============================================================================
 // Discovery
 // =============================================================================
 
@@ -483,4 +520,13 @@ export type QuotaSummary = {
   remaining: number;
   used_per_key: number[];
   last_event: QuotaUsageEvent | null;
+};
+
+// =============================================================================
+// Versao da API (heartbeat para detectar offline / redeploy)
+// =============================================================================
+
+export type ApiVersionResponse = {
+  version: string;
+  started_at: string | null;
 };

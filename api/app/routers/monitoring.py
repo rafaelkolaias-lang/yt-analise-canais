@@ -1,6 +1,6 @@
 from typing import Callable
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,12 @@ from app.schemas.monitoring import (
     VideoSnapshotRead,
 )
 from app.services import monitoring_service, youtube_client
+
+# Limite por request no endpoint batch /channels/best-videos.
+# Mantido baixo o suficiente pra a query IN (...) ser rapida e o JSON nao
+# explodir, mas grande o suficiente pra cobrir uma pagina inteira da UI
+# (50 canais por pagina) com folga.
+BEST_VIDEOS_BATCH_MAX_IDS = 200
 
 
 def _run_bulk(ids: list[int], op: Callable[[int], None]) -> BulkOperationResponse:
@@ -159,6 +165,52 @@ def bulk_delete_channels(
     def _op(cid: int) -> None:
         monitoring_service.delete_channel(db, cid)
     return _run_bulk(req.ids, _op)
+
+
+@router.get(
+    "/channels/best-videos",
+    response_model=dict[int, list[TrackedVideoRead]],
+)
+def channels_best_videos_batch(
+    ids: str = Query(..., description="Lista CSV de channel ids, ex: '1,2,3'"),
+    db: Session = Depends(get_db),
+) -> dict[int, list[TrackedVideoRead]]:
+    """
+    Retorna os 'melhores videos detectados' de varios canais em UMA query SQL.
+
+    Forma da resposta: `{ "<channel_id>": [TrackedVideoRead, ...], ... }`.
+    Canais sem nenhum melhor detectado aparecem com `[]`. Canais inexistentes
+    sao ignorados (nao estouram).
+
+    Limite: BEST_VIDEOS_BATCH_MAX_IDS por request.
+    """
+    raw_ids = [chunk.strip() for chunk in ids.split(",") if chunk.strip()]
+    parsed_ids: list[int] = []
+    for raw in raw_ids:
+        try:
+            parsed_ids.append(int(raw))
+        except ValueError:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST,
+                detail=f"id invalido em 'ids': {raw!r}",
+            )
+
+    if not parsed_ids:
+        return {}
+    if len(parsed_ids) > BEST_VIDEOS_BATCH_MAX_IDS:
+        raise HTTPException(
+            status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"limite de {BEST_VIDEOS_BATCH_MAX_IDS} ids por request "
+                f"(recebido {len(parsed_ids)})"
+            ),
+        )
+
+    rows = monitoring_service.list_best_videos_for_channels(db, parsed_ids)
+    out: dict[int, list[TrackedVideoRead]] = {cid: [] for cid in parsed_ids}
+    for row in rows:
+        out.setdefault(row.channel_id, []).append(_video_read(row))
+    return out
 
 
 @router.patch("/channels/{channel_id}", response_model=ChannelRead)

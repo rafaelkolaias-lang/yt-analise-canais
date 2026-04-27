@@ -149,6 +149,25 @@ export function MonitoramentoView({
     }
   }, []);
 
+  // Suporte a deep-link `?tab=suggestions` (usado pela notificacao
+  // "Sugestoes mudaram" da central). Aplica a aba uma vez no mount.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const requested = params.get("tab");
+      if (
+        requested === "channels" ||
+        requested === "videos" ||
+        requested === "best" ||
+        requested === "suggestions"
+      ) {
+        setTab(requested);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   function changeVideoLayout(next: VideoLayout) {
     setVideoLayout(next);
     try {
@@ -621,6 +640,16 @@ export function MonitoramentoView({
     }
   }
 
+  // Carrega sugestoes se a aba foi ativada por deep-link (sem passar pelo
+  // handler do botao). Sem este efeito, abrir `/monitoramento?tab=suggestions`
+  // mostraria a aba vazia ate o usuario clicar em "Recarregar".
+  useEffect(() => {
+    if (tab !== "suggestions") return;
+    if (monitorSuggestions !== null || deadSuggestions !== null) return;
+    if (loadingSuggestions) return;
+    void loadSuggestions();
+  }, [tab, monitorSuggestions, deadSuggestions, loadingSuggestions, loadSuggestions]);
+
   async function onAddSuggestedChannel(s: MonitorSuggestion) {
     try {
       await apiPost<MonitoredChannel>("/api/monitoring/channels", {
@@ -675,6 +704,8 @@ export function MonitoramentoView({
   // -------------------------------------------------------------------------
   // Best videos por canal
   // -------------------------------------------------------------------------
+  // Endpoint singular ainda usado quando atualizamos um canal específico
+  // após snapshot manual.
   const loadBestForChannel = useCallback(
     async (channelId: number) => {
       try {
@@ -689,11 +720,65 @@ export function MonitoramentoView({
     [toast]
   );
 
-  async function onOpenBestTab() {
+  // Endpoint batch: carrega os "melhores" de varios canais em UMA request.
+  // Usado pela paginacao da aba Best.
+  const loadBestForChannelsBatch = useCallback(
+    async (channelIds: number[]) => {
+      if (channelIds.length === 0) return;
+      try {
+        const idsParam = channelIds.join(",");
+        const data = await apiGet<Record<string, MonitoredVideo[]>>(
+          `/api/monitoring/channels/best-videos?ids=${idsParam}`
+        );
+        setBestByChannel((prev) => {
+          const next = { ...prev };
+          for (const id of channelIds) {
+            // Backend devolve chave string (JSON object). Mantemos `[]` como
+            // marcador de "ja consultado, sem melhores ainda".
+            next[id] = data[String(id)] ?? [];
+          }
+          return next;
+        });
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [toast]
+  );
+
+  // Paginacao da aba Best: 50 canais por pagina, navegacao por
+  // [anterior][proxima]. Cada troca de pagina dispara 1 unica request batch.
+  const BEST_PAGE_SIZE = 50;
+  const [bestPage, setBestPage] = useState(0);
+  const bestTotalPages = Math.max(
+    1,
+    Math.ceil(channels.length / BEST_PAGE_SIZE)
+  );
+  const bestPageChannels = useMemo(() => {
+    const start = bestPage * BEST_PAGE_SIZE;
+    return channels.slice(start, start + BEST_PAGE_SIZE);
+  }, [channels, bestPage]);
+
+  // Reseta a pagina quando muda o conjunto de canais (ex: deletar canal numa
+  // pagina vazia o ultimo item).
+  useEffect(() => {
+    if (bestPage > 0 && bestPage >= bestTotalPages) {
+      setBestPage(Math.max(0, bestTotalPages - 1));
+    }
+  }, [bestPage, bestTotalPages]);
+
+  // Carrega a pagina visivel da aba Best (so o que ainda nao tem cache).
+  useEffect(() => {
+    if (tab !== "best") return;
+    const pending = bestPageChannels
+      .filter((c) => bestByChannel[c.id] === undefined)
+      .map((c) => c.id);
+    if (pending.length === 0) return;
+    void loadBestForChannelsBatch(pending);
+  }, [tab, bestPageChannels, bestByChannel, loadBestForChannelsBatch]);
+
+  function onOpenBestTab() {
     setTab("best");
-    // Carrega lazy para os canais ainda não buscados
-    const pending = channels.filter((c) => bestByChannel[c.id] === undefined);
-    await Promise.all(pending.map((c) => loadBestForChannel(c.id)));
   }
 
   const counts = useMemo(
@@ -1752,7 +1837,46 @@ export function MonitoramentoView({
               </div>
             </div>
           )}
-          {channels.map((c) => {
+          {channels.length > BEST_PAGE_SIZE && (
+            <div
+              className="card"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "8px 12px",
+              }}
+            >
+              <span className="muted" style={{ fontSize: 12 }}>
+                {channels.length.toLocaleString("pt-BR")} canais ·{" "}
+                pagina {bestPage + 1} de {bestTotalPages} ·{" "}
+                exibindo {bestPageChannels.length} (
+                {bestPage * BEST_PAGE_SIZE + 1}–
+                {bestPage * BEST_PAGE_SIZE + bestPageChannels.length})
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={bestPage === 0}
+                  onClick={() => setBestPage((p) => Math.max(0, p - 1))}
+                >
+                  ← anterior
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  disabled={bestPage >= bestTotalPages - 1}
+                  onClick={() =>
+                    setBestPage((p) => Math.min(bestTotalPages - 1, p + 1))
+                  }
+                >
+                  proxima →
+                </button>
+              </div>
+            </div>
+          )}
+          {bestPageChannels.map((c) => {
             const list = bestByChannel[c.id];
             return (
               <section key={c.id} className="card">

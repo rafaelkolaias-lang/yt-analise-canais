@@ -127,6 +127,10 @@ const INTERNAL_KEYS = new Set<string>([
   // logo apos a secao de "API do YouTube". Esconder aqui evita o textarea
   // generico de SecretInput.
   "youtube.api_keys",
+  // Estado interno: ultima contagem de sugestoes que o backend viu, usada
+  // para decidir se uma nova rodada de sync deve emitir notificacao
+  // "Sugestoes mudaram". Escrito pelo sync_service.
+  "notifications.last_suggestions_count",
 ]);
 
 type Props = {

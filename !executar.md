@@ -2,35 +2,16 @@
 
 > Use este arquivo so para tarefas pendentes.
 > Quando uma tarefa for concluida, remover daqui.
-> O historico real de entrega fica no `git log`.
 
 ---
 
-## Tarefas Pendentes
+## ⏳ 1. Lembrete de deploy (permanente)
 
-## ⏳ 1. Lembrete de deploy de settings/descricoes/analytics-sugestoes
+- Sempre que mudar settings/descricoes na api: `python -m app.seed` no console.
+- Sempre que tiver migration nova: `alembic upgrade head` antes do seed.
+- Pos-deploy do `web`: F5 no navegador (Next.js compila no build, sem etapa manual).
 
-Status: PENDENTE
-
-### Objetivo
-Nao esquecer os passos manuais necessarios quando houver deploy da `api` com mudancas de settings, descricoes ou novas keys.
-
-### Escopo
-- No deploy futuro da `api`, lembrar de rodar no console:
-```bash
-cd /app
-python -m app.seed
-```
-- Quando houver migration nova, rodar tambem:
-```bash
-cd /app
-alembic upgrade head
-```
-- No deploy do `web`, lembrar de publicar junto as mudancas visuais relacionadas.
-
-### Criterios de aceite
-- Antes de cada deploy relevante da `api`, esse lembrete ainda esta visivel aqui.
-
-### Possiveis armadilhas
-- Esquecer o `python -m app.seed` depois de mudar defaults/descricoes/chaves e achar que a API ou a tela de configuracoes estao erradas.
-- Esquecer `alembic upgrade head` quando a entrega tiver migration nova.
+> **Nota Fase 5:** o seed adicionou `notifications.last_suggestions_count`
+> (interna). Apos deploy desta versao da api, rodar `python -m app.seed`
+> uma vez para inserir a chave; do contrario o sync ainda funciona, mas a
+> primeira detecao de "sugestoes mudaram" cria a row sozinha.

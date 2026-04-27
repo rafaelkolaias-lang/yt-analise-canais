@@ -365,3 +365,48 @@ class ChannelBlacklist(Base):
     blacklisted_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
+
+
+# =============================================================================
+# Notificações persistentes
+# =============================================================================
+class Notification(Base):
+    """
+    Eventos persistentes mostrados na central de notificações da UI.
+
+    Tipos comuns:
+      - task_progress     — barra de progresso ativa (status="running")
+      - task_done         — operação terminou com sucesso (status="success")
+      - task_error        — operação falhou ou parcial (status="error")
+      - system_alert      — mensagem informativa do sistema (status="info")
+      - suggestions_changed — backend detectou novas sugestões (status="info")
+
+    `source_key` permite atualizar uma notificação existente em vez de criar
+    nova (ex: o sync manual cria com source_key="sync_manual:<run_id>" e atualiza
+    progresso na mesma row).
+
+    `metadata_json` é JSON livre para o frontend (ex: link de destino, ids).
+    """
+    __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_dismissed_created", "dismissed_at", "created_at"),
+        Index("ix_notifications_source_key", "source_key"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    type: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    message: Mapped[Optional[str]] = mapped_column(Text)
+    progress_pct: Mapped[Optional[int]] = mapped_column(Integer)
+    metadata_json: Mapped[Optional[str]] = mapped_column(Text)
+    source_key: Mapped[Optional[str]] = mapped_column(String(128))
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    dismissed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)

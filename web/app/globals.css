@@ -100,6 +100,90 @@ a {
   color: var(--accent);
 }
 
+/* Widget de cota fixado na sidebar (Fase 2 das notificações) */
+.quota-widget {
+  margin: 18px 8px 0;
+  padding: 10px 10px 8px;
+  background: rgba(79, 140, 255, 0.04);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.quota-widget-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+  margin-bottom: 6px;
+}
+.quota-widget-refresh {
+  background: transparent;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 2px;
+  transition: color 0.15s, transform 0.15s;
+}
+.quota-widget-refresh:hover:not(:disabled) {
+  color: var(--text);
+  transform: rotate(60deg);
+}
+.quota-widget-refresh:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+.quota-widget-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: var(--border);
+  overflow: hidden;
+  margin-bottom: 4px;
+}
+.quota-widget-bar-fill {
+  height: 100%;
+  transition: width 200ms ease, background 200ms ease;
+}
+.quota-widget-numbers {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  color: var(--text);
+  font-size: 12px;
+}
+.quota-widget-numbers strong {
+  color: var(--text);
+}
+.quota-widget-pct {
+  color: var(--text-dim);
+  font-size: 11px;
+}
+.quota-widget-foot {
+  margin-top: 4px;
+  font-size: 10px;
+  color: var(--text-dim);
+}
+.quota-widget-empty {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.quota-widget-empty a {
+  color: var(--accent);
+}
+.quota-widget-loading,
+.quota-widget-error {
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.quota-widget-error {
+  color: var(--danger);
+}
+
 .main {
   padding: 24px 32px;
   max-width: 1400px;
@@ -1314,15 +1398,34 @@ tr.row-selected > td {
 
 .notif-badge {
   position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 10px;
-  height: 10px;
+  top: 4px;
+  right: 4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
   border-radius: 999px;
   border: 2px solid var(--bg-elev);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+}
+.notif-badge:empty {
+  /* Sem número, vira pontinho compacto. */
+  min-width: 10px;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+}
+.notif-badge-info {
+  background: var(--accent);
 }
 .notif-badge-warn {
   background: var(--warn);
+  color: #000;
 }
 .notif-badge-danger {
   background: var(--danger);

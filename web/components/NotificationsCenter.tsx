@@ -1,26 +1,36 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-import { apiGet, type QuotaSummary, type YouTubeKeysHealth } from "@/lib/api";
+import {
+  apiGet,
+  apiPost,
+  type ApiVersionResponse,
+  type NotificationItem,
+  type NotificationsListResponse,
+  type NotificationStatus,
+  type UnreadCountResponse,
+  type YouTubeKeysHealth,
+} from "@/lib/api";
 
-// Cada card do painel é independente: para adicionar uma nova notificação no
-// futuro basta adicionar mais um item à `cards` lá embaixo. O shell (ícone +
-// painel + posicionamento + interações) não precisa ser tocado.
-type NotificationCard = {
-  id: string;
-  render: () => React.ReactNode;
+// Polling cadence
+const POLL_FAST_MS = 10_000; // popover aberto
+const POLL_SLOW_MS = 30_000; // popover fechado (só badge)
+const POLL_AMBIENT_MS = 60_000; // health/quota em background
+const POLL_VERSION_MS = 60_000; // /api/version pra heartbeat de offline/redeploy
+const VERSION_OFFLINE_AFTER_FAILS = 3; // 3 falhas consecutivas = offline
+const STARTED_AT_STORAGE_KEY = "app.api.startedAt"; // persiste primeiro started_at observado
+
+// Notificacao local (so existe em state, nao persiste). Sao montadas no
+// popover ao lado das notificacoes persistidas. Tipos suportados:
+//   - "api_offline": 3+ failures consecutivas no /api/version
+//   - "api_updated": started_at mudou desde a primeira leitura
+type LocalKind = "api_offline" | "api_updated";
+type LocalNotification = {
+  kind: LocalKind;
+  // Para api_offline: epoch ms da primeira falha; renderizamos "ha Xs".
+  offline_since_ms?: number;
 };
-
-function fmt(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
-  return v.toLocaleString("pt-BR");
-}
-
-function fmtPct(used: number, total: number): string {
-  if (total <= 0) return "—";
-  return `${((used / total) * 100).toFixed(1)}%`;
-}
 
 function fmtRelative(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -37,9 +47,170 @@ function fmtRelative(iso: string | null | undefined): string {
   return `há ${day}d`;
 }
 
+// ---------------------------------------------------------------------------
+// Subcomponentes
+// ---------------------------------------------------------------------------
+const STATUS_COLOR: Record<NotificationStatus, string> = {
+  running: "var(--accent)",
+  success: "var(--success)",
+  error: "var(--danger)",
+  info: "var(--text-dim)",
+};
+
+function NotificationCard({
+  item,
+  onRead,
+  onDismiss,
+}: {
+  item: NotificationItem;
+  onRead: (id: number) => void;
+  onDismiss: (id: number) => void;
+}) {
+  const isRunning = item.status === "running";
+  const unread = item.read_at == null;
+  const accent = STATUS_COLOR[item.status] ?? "var(--text-dim)";
+  const isSuggestionsChanged = item.type === "suggestions_changed";
+
+  return (
+    <div
+      className="notif-card"
+      style={{
+        borderLeft: `3px solid ${accent}`,
+        opacity: unread ? 1 : 0.78,
+        cursor: unread ? "pointer" : "default",
+      }}
+      onClick={() => unread && onRead(item.id)}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          gap: 8,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            className="notif-card-title"
+            style={{ color: unread ? "var(--text)" : "var(--text-dim)" }}
+          >
+            {item.title}
+          </div>
+          {item.message && (
+            <div style={{ fontSize: 12, marginTop: 4, color: "var(--text-dim)" }}>
+              {item.message}
+            </div>
+          )}
+          {isSuggestionsChanged && (
+            <div style={{ marginTop: 6, fontSize: 11 }}>
+              <a
+                href="/monitoramento?tab=suggestions"
+                onClick={(e) => e.stopPropagation()}
+              >
+                Ver sugestões →
+              </a>
+            </div>
+          )}
+          {isRunning && item.progress_pct != null && (
+            <div
+              aria-label="progresso"
+              style={{
+                marginTop: 6,
+                height: 4,
+                borderRadius: 999,
+                background: "var(--border)",
+                overflow: "hidden",
+              }}
+            >
+              <div
+                style={{
+                  width: `${Math.min(100, Math.max(0, item.progress_pct))}%`,
+                  height: "100%",
+                  background: accent,
+                  transition: "width 200ms ease",
+                }}
+              />
+            </div>
+          )}
+          <div
+            className="muted"
+            style={{ fontSize: 10, marginTop: 6 }}
+          >
+            {fmtRelative(item.updated_at)}
+          </div>
+        </div>
+        <button
+          type="button"
+          aria-label="dispensar notificação"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDismiss(item.id);
+          }}
+          style={{
+            background: "transparent",
+            border: "none",
+            color: "var(--text-dim)",
+            cursor: "pointer",
+            fontSize: 16,
+            lineHeight: 1,
+            padding: "0 4px",
+          }}
+        >
+          ×
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ApiOfflineCard({ since }: { since: number }) {
+  // Re-render a cada 5s para o "há Xs" subir conforme o tempo passa.
+  const [, force] = useState(0);
+  useEffect(() => {
+    const t = setInterval(() => force((x) => x + 1), 5_000);
+    return () => clearInterval(t);
+  }, []);
+  const elapsedSec = Math.max(0, Math.round((Date.now() - since) / 1000));
+  const label =
+    elapsedSec < 60
+      ? `há ${elapsedSec}s`
+      : elapsedSec < 3600
+      ? `há ${Math.round(elapsedSec / 60)}min`
+      : `há ${Math.round(elapsedSec / 3600)}h`;
+  return (
+    <div className="notif-card" style={{ borderLeft: "3px solid var(--danger)" }}>
+      <div className="notif-card-title" style={{ color: "var(--danger)" }}>
+        API offline
+      </div>
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        Sem resposta {label}. As páginas podem ficar desatualizadas.
+      </div>
+    </div>
+  );
+}
+
+function ApiUpdatedCard() {
+  return (
+    <div className="notif-card" style={{ borderLeft: "3px solid var(--accent)" }}>
+      <div className="notif-card-title">API atualizada</div>
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        O backend foi atualizado durante esta sessão. Recarregue para pegar a
+        versão nova.
+      </div>
+      <div style={{ marginTop: 8 }}>
+        <button
+          type="button"
+          className="btn-primary"
+          onClick={() => window.location.reload()}
+          style={{ fontSize: 12, padding: "4px 10px" }}
+        >
+          Recarregar agora
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function BurnedKeysCard({ data }: { data: YouTubeKeysHealth | null }) {
-  // So mostra o card quando ha chaves queimadas — caso contrario o card some
-  // pra nao poluir a central com info irrelevante.
   if (!data || data.burned <= 0) return null;
   return (
     <div className="notif-card" style={{ borderLeft: "3px solid var(--danger)" }}>
@@ -66,96 +237,71 @@ function BurnedKeysCard({ data }: { data: YouTubeKeysHealth | null }) {
   );
 }
 
-function QuotaCard({ data, error, loading }: { data: QuotaSummary | null; error: string | null; loading: boolean }) {
-  if (loading && !data) {
-    return (
-      <div className="notif-card">
-        <div className="notif-card-title">Cota da YouTube API</div>
-        <div className="muted" style={{ fontSize: 12 }}>carregando…</div>
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="notif-card">
-        <div className="notif-card-title">Cota da YouTube API</div>
-        <div className="muted" style={{ fontSize: 12, color: "var(--danger)" }}>
-          {error}
-        </div>
-      </div>
-    );
-  }
-  if (!data) return null;
-
-  const noKeys = data.keys_count === 0;
-  const pct = data.total_quota > 0 ? (data.used / data.total_quota) * 100 : 0;
-  const barColor =
-    pct >= 90 ? "var(--danger)" : pct >= 70 ? "var(--warn)" : "var(--success)";
-
-  return (
-    <div className="notif-card">
-      <div className="notif-card-title">Cota da YouTube API</div>
-      {noKeys ? (
-        <div className="muted" style={{ fontSize: 12 }}>
-          Nenhuma API key cadastrada. Configure em <a href="/configuracoes">Configurações</a>.
-        </div>
-      ) : (
-        <>
-          <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
-            {data.keys_count} {data.keys_count === 1 ? "key" : "keys"} ·{" "}
-            {fmt(data.daily_quota_per_key)} units/dia cada · reset em UTC
-          </div>
-          <div style={{ marginTop: 8, fontSize: 13 }}>
-            <strong>{fmt(data.used)}</strong> usado de{" "}
-            <strong>{fmt(data.total_quota)}</strong>
-            <span className="muted" style={{ marginLeft: 6 }}>
-              ({fmtPct(data.used, data.total_quota)})
-            </span>
-          </div>
-          <div
-            style={{
-              marginTop: 6,
-              height: 6,
-              borderRadius: 999,
-              background: "var(--border)",
-              overflow: "hidden",
-            }}
-          >
-            <div
-              style={{
-                width: `${Math.min(pct, 100)}%`,
-                height: "100%",
-                background: barColor,
-                transition: "width 200ms ease",
-              }}
-            />
-          </div>
-          <div style={{ marginTop: 6, fontSize: 12, color: "var(--text-dim)" }}>
-            restante: <strong>{fmt(data.remaining)}</strong> units
-          </div>
-          {data.last_event && (
-            <div style={{ marginTop: 8, fontSize: 11, color: "var(--text-dim)" }}>
-              último evento: <strong>{data.last_event.label}</strong> ·{" "}
-              {data.last_event.cost} units · {fmtRelative(data.last_event.at)}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
+// ---------------------------------------------------------------------------
+// Componente principal
+// ---------------------------------------------------------------------------
 export function NotificationsCenter() {
   const [open, setOpen] = useState(false);
-  const [quota, setQuota] = useState<QuotaSummary | null>(null);
+  const [items, setItems] = useState<NotificationItem[]>([]);
+  const [unread, setUnread] = useState(0);
   const [health, setHealth] = useState<YouTubeKeysHealth | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localNotifs, setLocalNotifs] = useState<LocalNotification[]>([]);
+  const versionFailsRef = useRef(0);
+  const offlineSinceRef = useRef<number | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Polling em background do health pra que o badge "queimada" reflita o
-  // estado mesmo com o painel fechado. Cadência baixa (60s) — não é
-  // urgente pro usuario saber em segundos.
+  // Pull notifications + counters quando popover abre, ou pull leve só do counter
+  // quando fechado. Os dois rodam em background continuamente.
+  const loadList = useCallback(async () => {
+    try {
+      const resp = await apiGet<NotificationsListResponse>(
+        "/api/notifications?limit=50",
+      );
+      setItems(resp.items);
+      setUnread(resp.unread_count);
+    } catch {
+      // silencioso — popover tolera falha; counter continua tentando
+    }
+  }, []);
+
+  const loadCounter = useCallback(async () => {
+    try {
+      const resp = await apiGet<UnreadCountResponse>(
+        "/api/notifications/unread-count",
+      );
+      setUnread(resp.unread_count);
+    } catch {
+      // silencioso — badge tolera falha de rede.
+    }
+  }, []);
+
+  // Polling do counter (sempre ativo, mesmo com painel fechado).
+  useEffect(() => {
+    void loadCounter();
+    const t = setInterval(loadCounter, POLL_SLOW_MS);
+    return () => clearInterval(t);
+  }, [loadCounter]);
+
+  // Polling rápido enquanto painel aberto: traz lista completa.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      const [, h] = await Promise.all([
+        loadList(),
+        apiGet<YouTubeKeysHealth>("/api/youtube/keys/health").catch(() => null),
+      ]);
+      if (cancelled) return;
+      if (h) setHealth(h);
+    })();
+    const t = setInterval(loadList, POLL_FAST_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, [open, loadList]);
+
+  // Polling ambiente do health (badge vermelho aparece mesmo com popover fechado).
   useEffect(() => {
     let cancelled = false;
     async function loadHealth() {
@@ -163,52 +309,88 @@ export function NotificationsCenter() {
         const resp = await apiGet<YouTubeKeysHealth>("/api/youtube/keys/health");
         if (!cancelled) setHealth(resp);
       } catch {
-        // silencioso — o card so aparece se houver dado, sem bloquear o sino.
+        // silencioso
       }
     }
     void loadHealth();
-    const t = setInterval(loadHealth, 60_000);
+    const t = setInterval(loadHealth, POLL_AMBIENT_MS);
     return () => {
       cancelled = true;
       clearInterval(t);
     };
   }, []);
 
-  // Recarrega o quota-summary toda vez que abre, e também a cada 30s enquanto
-  // estiver aberto, pra refletir consumo de syncs em background.
+  // Heartbeat de /api/version: detecta API offline (3 falhas seguidas) e
+  // redeploy (started_at mudou desde a primeira leitura nesta sessao).
+  // Notificacoes locais nao persistem — vivem so no state desta sessao.
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
 
-    async function load() {
-      setLoading(true);
-      setError(null);
+    function setLocal(kind: LocalKind, patch: Partial<LocalNotification> = {}) {
+      setLocalNotifs((prev) => {
+        const without = prev.filter((n) => n.kind !== kind);
+        return [...without, { kind, ...patch }];
+      });
+    }
+    function clearLocal(kind: LocalKind) {
+      setLocalNotifs((prev) => prev.filter((n) => n.kind !== kind));
+    }
+
+    async function tick() {
       try {
-        const [q, h] = await Promise.all([
-          apiGet<QuotaSummary>("/api/notifications/quota-summary"),
-          apiGet<YouTubeKeysHealth>("/api/youtube/keys/health").catch(() => null),
-        ]);
-        if (!cancelled) {
-          setQuota(q);
-          if (h) setHealth(h);
+        const resp = await apiGet<ApiVersionResponse>("/api/version");
+        if (cancelled) return;
+
+        // Sucesso: sai do estado offline (caso estivesse).
+        if (versionFailsRef.current >= VERSION_OFFLINE_AFTER_FAILS) {
+          clearLocal("api_offline");
         }
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
+        versionFailsRef.current = 0;
+        offlineSinceRef.current = null;
+
+        // Detecta redeploy comparando started_at com o primeiro visto.
+        if (resp.started_at) {
+          let firstSeen: string | null = null;
+          try {
+            firstSeen = window.sessionStorage.getItem(STARTED_AT_STORAGE_KEY);
+          } catch {
+            // sessionStorage indisponivel → roda sem deteccao de redeploy
+          }
+          if (!firstSeen) {
+            try {
+              window.sessionStorage.setItem(
+                STARTED_AT_STORAGE_KEY,
+                resp.started_at,
+              );
+            } catch {
+              /* ignore */
+            }
+          } else if (firstSeen !== resp.started_at) {
+            setLocal("api_updated");
+          }
+        }
+      } catch {
+        if (cancelled) return;
+        versionFailsRef.current += 1;
+        if (versionFailsRef.current === VERSION_OFFLINE_AFTER_FAILS) {
+          // marca o instante da PRIMEIRA falha (3 ciclos atras), pra que o
+          // contador "ha Xs" reflita o tempo real desde a queda.
+          const since = Date.now() - VERSION_OFFLINE_AFTER_FAILS * POLL_VERSION_MS;
+          offlineSinceRef.current = since;
+          setLocal("api_offline", { offline_since_ms: since });
+        }
       }
     }
 
-    load();
-    timer = setInterval(load, 30_000);
+    void tick();
+    const t = setInterval(tick, POLL_VERSION_MS);
     return () => {
       cancelled = true;
-      if (timer) clearInterval(timer);
+      clearInterval(t);
     };
-  }, [open]);
+  }, []);
 
-  // ESC fecha o painel.
+  // ESC fecha
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -218,7 +400,7 @@ export function NotificationsCenter() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Click fora do popover fecha.
+  // Click fora fecha
   useEffect(() => {
     if (!open) return;
     const onClick = (e: MouseEvent) => {
@@ -227,7 +409,6 @@ export function NotificationsCenter() {
         setOpen(false);
       }
     };
-    // Defer para o próximo tick, senão o próprio clique no botão de abrir já fecha.
     const t = setTimeout(() => document.addEventListener("mousedown", onClick), 0);
     return () => {
       clearTimeout(t);
@@ -235,25 +416,57 @@ export function NotificationsCenter() {
     };
   }, [open]);
 
-  // Lista de cards. Para adicionar nova notificação no futuro: append aqui.
-  // O card de "chave queimada" so renderiza se houver chaves nesse estado.
-  const cards: NotificationCard[] = [
-    {
-      id: "youtube-keys-burned",
-      render: () => <BurnedKeysCard data={health} />,
-    },
-    {
-      id: "youtube-quota",
-      render: () => <QuotaCard data={quota} error={error} loading={loading} />,
-    },
-  ];
+  // ---- ações sobre rows persistidas ----
+  async function markRead(id: number) {
+    // Optimistic
+    setItems((prev) =>
+      prev.map((x) =>
+        x.id === id && x.read_at == null
+          ? { ...x, read_at: new Date().toISOString() }
+          : x,
+      ),
+    );
+    setUnread((u) => Math.max(0, u - 1));
+    try {
+      await apiPost(`/api/notifications/${id}/read`, {});
+    } catch {
+      // Reverte em caso de falha — recarrega lista pra ficar consistente.
+      void loadList();
+    }
+  }
 
-  // Badge no ícone: prioridade chave queimada (danger) > quota >=90% (danger)
-  // > quota >=70% (warn). Sem badge se nada disso.
-  const pct =
-    quota && quota.total_quota > 0 ? (quota.used / quota.total_quota) * 100 : 0;
+  async function dismissOne(id: number) {
+    const wasUnread = items.find((x) => x.id === id)?.read_at == null;
+    setItems((prev) => prev.filter((x) => x.id !== id));
+    if (wasUnread) setUnread((u) => Math.max(0, u - 1));
+    try {
+      await apiPost(`/api/notifications/${id}/dismiss`, {});
+    } catch {
+      void loadList();
+    }
+  }
+
+  async function dismissAll() {
+    if (items.length === 0) return;
+    setItems([]);
+    setUnread(0);
+    try {
+      await apiPost("/api/notifications/dismiss-all", {});
+    } catch {
+      void loadList();
+    }
+  }
+
+  // ---- badge ----
+  // Prioridade: vermelho se ha chave queimada OU API offline; azul se ha
+  // notificacoes nao-lidas, redeploy detectado, ou qualquer outra notif local.
+  // (A cota agora vive na sidebar — nao influencia o badge aqui.)
   const hasBurned = (health?.burned ?? 0) > 0;
-  const badgeKind = hasBurned || pct >= 90 ? "danger" : pct >= 70 ? "warn" : null;
+  const hasOfflineLocal = localNotifs.some((n) => n.kind === "api_offline");
+  const hasUpdatedLocal = localNotifs.some((n) => n.kind === "api_updated");
+  let badgeKind: "danger" | "info" | null = null;
+  if (hasBurned || hasOfflineLocal) badgeKind = "danger";
+  else if (unread > 0 || hasUpdatedLocal) badgeKind = "info";
 
   return (
     <div className="notif-root" ref={popoverRef}>
@@ -266,16 +479,76 @@ export function NotificationsCenter() {
       >
         <span aria-hidden="true">🔔</span>
         {badgeKind && (
-          <span className={`notif-badge notif-badge-${badgeKind}`} aria-hidden="true" />
+          <span
+            className={`notif-badge notif-badge-${badgeKind}`}
+            aria-hidden="true"
+          >
+            {unread > 0 ? unread : ""}
+          </span>
         )}
       </button>
       {open && (
         <div className="notif-popover" role="dialog" aria-label="Notificações">
-          <div className="notif-popover-header">Notificações</div>
+          <div
+            className="notif-popover-header"
+            style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}
+          >
+            <span>Notificações</span>
+            {items.length > 0 && (
+              <button
+                type="button"
+                onClick={dismissAll}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  color: "var(--text-dim)",
+                  fontSize: 11,
+                  cursor: "pointer",
+                  padding: 0,
+                }}
+              >
+                Limpar tudo
+              </button>
+            )}
+          </div>
           <div className="notif-popover-body">
-            {cards.map((c) => (
-              <div key={c.id}>{c.render()}</div>
-            ))}
+            {/* Cards transientes (refletem estado atual, nao evento). Cota
+                migrou para a sidebar — aqui ficam alertas de chave queimada
+                e os locais de heartbeat (offline / redeploy). */}
+            <BurnedKeysCard data={health} />
+            {localNotifs.map((n) => {
+              if (n.kind === "api_offline") {
+                return (
+                  <ApiOfflineCard
+                    key="api_offline"
+                    since={n.offline_since_ms ?? Date.now()}
+                  />
+                );
+              }
+              if (n.kind === "api_updated") {
+                return <ApiUpdatedCard key="api_updated" />;
+              }
+              return null;
+            })}
+
+            {/* Eventos persistidos */}
+            {items.length === 0 ? (
+              <div
+                className="muted"
+                style={{ fontSize: 12, padding: "8px 0" }}
+              >
+                nenhuma notificação recente.
+              </div>
+            ) : (
+              items.map((it) => (
+                <NotificationCard
+                  key={it.id}
+                  item={it}
+                  onRead={markRead}
+                  onDismiss={dismissOne}
+                />
+              ))
+            )}
           </div>
         </div>
       )}

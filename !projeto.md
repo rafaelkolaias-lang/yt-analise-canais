@@ -17,26 +17,33 @@ Fluxo macro:
 5. **Sugestões** aponta canais para monitorar ou remover/pausar.
 6. **Notificações** mostra informação operacional agregada no próprio site.
 
-## Status atual (2026-04-26)
+## Status atual (2026-04-27)
 
 Em produção/local já existem:
 - Descoberta manual e automática.
 - Monitoramento de canais e vídeos.
 - Snapshot periódico via scheduler.
 - Analytics paginado com filtro de status (`Ativos`, `Pausados`, `Removidos`, `Todos`).
-- Sugestões de monitoramento e remoção.
+- Sugestões de monitoramento (regra simples + Canal Viral) e remoção (canal morto).
 - Thumbnails/avatares na descoberta e em runs.
 - Tratamento persistente de vídeos/canais indisponíveis.
-- Notificações internas no canto inferior esquerdo com resumo de quota.
+- Central de notificações no canto inferior esquerdo com card vermelho de chave queimada e cards locais (sem persistência) para API offline / API atualizada.
 - Sidebar com a marca **RK Youtube Analyzer**.
 - Filtro real de idade do canal na descoberta (`channel.min_age_days` / `channel.max_age_days`).
 - `monitor.best_videos_sample_size` efetivamente lido do banco.
-- `seed.py` com descrições didáticas e atualização de `description` em chaves já existentes.
+- `seed.py` com descrições curtas numeradas (`1.1`, `5.2`, `7.2.3`) e atualização de `description` em chaves já existentes; tooltip "?" com explicação detalhada na UI de Configurações.
+- Coluna **Observações** em Runs > Sync sem truncamento (texto inteiro com quebra de linha).
+- Gerenciamento INDIVIDUAL de chaves YouTube via `YouTubeKeysManager` (add/remove/reativar com bolinha verde/amarela/vermelha por chave).
+- Defaults do seed calibrados pra produção (mín. VPD 1000, duração 120s, idade canal 7–365d, saturação 200k, etc.).
+- **Endpoint batch `/api/monitoring/channels/best-videos?ids=…`** (1 query SQL com `IN (...)`, limite 200 ids/request) e UI da aba "Melhores vídeos" paginada (50 canais/página).
+- **Endpoint `/api/version`** com `started_at` fixo no `lifespan`. Frontend faz polling 60s — 3 falhas = card local "API offline há Xs"; mudança de `started_at` (redeploy) = card local "API atualizada — recarregue".
+- **Notificação `suggestions_changed`** criada no fim de `run_sync` (após auto-discovery) quando `to_monitor` ou `to_remove` cresce desde a última rodada. Card no popover tem link "Ver sugestões →" para `/monitoramento?tab=suggestions`. Estado persistido em `notifications.last_suggestions_count`.
 
 Pontos importantes recentes:
 - Os services antigos `analytics_service.py` e `suggestions_service.py` foram removidos.
 - O backend ativo usa `analytics_service_v2.py` e `suggestions_service_v2.py`.
-- A central de notificações já nasceu expansível: hoje mostra quota, mas a estrutura aceita novos cards.
+- A central de notificações é expansível por cards independentes: hoje tem quota agregada e chave queimada; adicionar novo card é só append em `cards` no `NotificationsCenter.tsx`.
+- Termo exibido "Canal Viral" mapeia para chaves técnicas `breakout_*` (preservadas por compatibilidade — não renomear sem migration de dados).
 
 ## Stack
 
@@ -73,7 +80,8 @@ yt-analise-canais-web/
 │   │   │   ├── notifications.py
 │   │   │   ├── settings.py
 │   │   │   ├── suggestions.py
-│   │   │   └── sync.py
+│   │   │   ├── sync.py
+│   │   │   └── youtube_keys.py
 │   │   ├── schemas/
 │   │   │   ├── analytics.py
 │   │   │   ├── discovery.py
@@ -81,18 +89,22 @@ yt-analise-canais-web/
 │   │   │   ├── notifications.py
 │   │   │   ├── settings.py
 │   │   │   ├── suggestions.py
-│   │   │   └── sync.py
+│   │   │   ├── sync.py
+│   │   │   └── youtube_keys.py
 │   │   └── services/
 │   │       ├── analytics_service_v2.py
 │   │       ├── auto_discovery_service.py
 │   │       ├── discovery_seed_terms.py
 │   │       ├── discovery_service.py
 │   │       ├── monitoring_service.py
+│   │       ├── notifications_service.py
+│   │       ├── settings_help.py
 │   │       ├── settings_reader.py
 │   │       ├── settings_service.py
 │   │       ├── suggestions_service_v2.py
 │   │       ├── sync_service.py
-│   │       └── youtube_client.py
+│   │       ├── youtube_client.py
+│   │       └── youtube_keys_service.py
 │   ├── migrations/
 │   │   ├── env.py
 │   │   └── versions/
@@ -117,8 +129,10 @@ yt-analise-canais-web/
 │   │   ├── ChannelsFilterBar.tsx
 │   │   ├── ErrorCard.tsx
 │   │   ├── GlobalSyncIndicator.tsx
+│   │   ├── HelpTooltip.tsx
 │   │   ├── NotificationsCenter.tsx
 │   │   ├── NotificationsSettings.tsx
+│   │   ├── QuotaSidebarWidget.tsx
 │   │   ├── SecretInput.tsx
 │   │   ├── SettingInput.tsx
 │   │   ├── Sidebar.tsx
@@ -126,7 +140,8 @@ yt-analise-canais-web/
 │   │   ├── SortableHeader.tsx
 │   │   ├── Toaster.tsx
 │   │   ├── VideoThumbnail.tsx
-│   │   └── VideosFilterBar.tsx
+│   │   ├── VideosFilterBar.tsx
+│   │   └── YouTubeKeysManager.tsx
 │   ├── lib/
 │   │   ├── api.ts
 │   │   ├── useBrowserNotifications.ts
@@ -152,6 +167,7 @@ yt-analise-canais-web/
 | Assunto | Arquivos |
 |---|---|
 | Bootstrap FastAPI, CORS, lifespan | `api/app/main.py` |
+| Endpoint heartbeat `/api/version` (`{version, started_at}`) | `api/app/main.py` (`APP_VERSION`, `APP_STARTED_AT`, `app_version()`) |
 | Configuração via `.env` | `api/app/core/config.py`, `api/.env.example` |
 | Banco / sessão SQLAlchemy | `api/app/core/database.py` |
 | Criptografia de secrets | `api/app/core/crypto.py` |
@@ -213,7 +229,10 @@ Observações atuais da descoberta:
 | Assunto | Arquivos |
 |---|---|
 | Regras de canal/vídeo monitorado | `api/app/services/monitoring_service.py`, `api/app/routers/monitoring.py`, `api/app/schemas/monitoring.py` |
+| Best videos por canal (singular) | `monitoring_service.list_best_videos_for_channel`, `GET /api/monitoring/channels/{id}/best-videos` |
+| Best videos em LOTE | `monitoring_service.list_best_videos_for_channels`, `GET /api/monitoring/channels/best-videos?ids=1,2,3` (limite `BEST_VIDEOS_BATCH_MAX_IDS=200`) |
 | Sync de todos os canais | `api/app/services/sync_service.py`, `api/app/routers/sync.py`, `api/app/schemas/sync.py` |
+| Detecção de "sugestões mudaram" pós-sync | `sync_service._check_suggestions_changed` (chamado depois da auto-discovery) |
 | UI de monitoramento | `web/app/monitoramento/MonitoramentoView.tsx`, `web/lib/api.ts` |
 | Runs / revisão persistente da descoberta | `web/app/runs/RunsView.tsx` |
 
@@ -222,6 +241,8 @@ Observações atuais do monitoramento:
 - `uploads_per_week` hoje usa uploads reais do canal, não mais `TrackedVideo.first_tracked_at` como proxy.
 - Vídeos indisponíveis gravam `unavailable_reason` e `unavailable_since`.
 - Canais removidos vão para `status='removed'` e entram na blacklist.
+- Aba "Melhores vídeos" do `MonitoramentoView` é PAGINADA (50 canais/página) e cada troca de página faz UMA request batch ao endpoint plural. O endpoint singular só é usado quando atualizamos um canal específico após snapshot manual.
+- `MonitoramentoView` aceita deep-link `?tab=channels|videos|best|suggestions`. A central de notificações usa `?tab=suggestions` para o link "Ver sugestões →" do card `suggestions_changed`.
 
 ### Sugestões
 
@@ -257,15 +278,31 @@ O Analytics ativo já contempla:
 
 | Assunto | Arquivos |
 |---|---|
+| Tabela e model de notificações persistentes | `api/app/models/domain.py` (`Notification`), migration `a1c5e9d8b3f0_add_notifications_table.py` |
+| Service (CRUD + cap FIFO) | `api/app/services/notifications_service.py` |
+| Endpoints persistidos + quota legada | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py` |
 | Componente global / popover | `web/components/NotificationsCenter.tsx` |
+| Widget de cota fixo na sidebar | `web/components/QuotaSidebarWidget.tsx` (renderizado em `web/components/Sidebar.tsx`) |
 | Mount global | `web/app/layout.tsx` |
 | Preferência de navegador | `web/components/NotificationsSettings.tsx`, `web/lib/useBrowserNotifications.ts` |
-| Endpoint operacional atual | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py` |
+| Endpoint saúde das chaves | `api/app/routers/youtube_keys.py` (`GET /api/youtube/keys/health`) |
+| Heartbeat de versão (offline/redeploy) | `api/app/main.py` (`/api/version`); polling no `NotificationsCenter.tsx` |
+| Detecção "sugestões mudaram" | `api/app/services/sync_service.py::_check_suggestions_changed` |
 
-Observações:
-- O sino no canto inferior esquerdo já existe.
-- Hoje ele mostra **quota agregada de todas as keys**.
-- A estrutura é extensível por cards independentes no array `cards` de `NotificationsCenter.tsx`.
+Observações (estado atual após Fases 1–5):
+- **Sistema persistente** em tabela `notifications`. Cada row = um EVENTO histórico (não estado).
+- Tipos: `task_progress`, `task_done`, `task_error`, `system_alert`, `suggestions_changed`.
+- `source_key` permite atualizar a MESMA notificação durante a execução em vez de empilhar (ex: sync manual atualiza progresso na mesma row).
+- Cap FIFO de **20 não-dispensadas** — ao criar a 21ª, a mais antiga é auto-dispensada (não deletada — auditoria preservada).
+- Endpoints: `GET /api/notifications` (lista + unread_count), `GET /api/notifications/unread-count`, `POST /{id}/read`, `POST /read-all`, `POST /{id}/dismiss`, `POST /dismiss-all`. `GET /api/notifications/quota-summary` mantido (consumido pelo widget da sidebar).
+- Sync manual sempre cria card de progresso. Sync agendado: silencioso quando `success`, cria card só em `partial`/`failed`.
+- Polling no popover: counter a cada 30s (badge sempre atualizado), lista a cada 10s quando popover aberto, health a cada 60s em background, **`/api/version` a cada 60s em background**.
+- Badge prioriza: **vermelho** (chave queimada > 0 OU API offline) > **azul** (notificações não-lidas > 0 OU redeploy detectado). Cota não influencia o badge.
+- **Cota da YouTube API**: vive em `QuotaSidebarWidget` (sidebar esquerda, sempre visível). Polling a cada 60s + botão ⟳ de refresh manual.
+- **Cards transientes** no popover (estado, não evento; não persistem): chave queimada, **API offline** (3 falhas seguidas em `/api/version`), **API atualizada** (`started_at` mudou desde a primeira leitura na sessão — botão "Recarregar agora").
+- Cards locais existem só em `useState`. `started_at` da primeira leitura é guardado em `sessionStorage` (chave `app.api.startedAt`).
+- `suggestions_changed`: criado por `sync_service._check_suggestions_changed` no fim de `run_sync` (após auto-discovery), comparando contagens atuais com `app_settings.notifications.last_suggestions_count`. Se `to_monitor` ou `to_remove` cresce, cria notificação `type=suggestions_changed` com link "Ver sugestões →" para `/monitoramento?tab=suggestions`.
+- Cap 20 e cleanup: não há cleanup automático de rows dismissed; auditoria fica até intervenção manual.
 
 ### Layout / shell / identidade visual
 
@@ -280,7 +317,7 @@ Observação:
 
 ## App settings: estado atual
 
-O `seed.py` hoje trabalha com **34 chaves** em `app_settings`.
+O `seed.py` hoje trabalha com **36 chaves** em `app_settings`.
 
 Categorias principais:
 - `sync_*`
@@ -288,9 +325,16 @@ Categorias principais:
 - `channel.*`
 - `monitor.*`
 - `analytics.*`
-- `youtube.*`
+- `youtube.*` (inclui as 4 chaves internas: `api_keys`, `api_key_daily_quota`, `quota_usage_today`, `api_keys_burned`)
 - `discovery.auto_*`
 - `suggestions.*`
+- `notifications.*` (interna)
+
+Chaves INTERNAS (escondidas da UI genérica via `INTERNAL_KEYS` em `ConfiguracoesForm.tsx`):
+- `youtube.api_keys` — gerenciada por `YouTubeKeysManager`.
+- `youtube.api_keys_burned` — estado interno de queimadas, manipulado por `youtube_client` e `YouTubeKeysManager`.
+- `youtube.quota_usage_today` — estado interno de consumo, escrito pelo `youtube_client`.
+- `notifications.last_suggestions_count` — JSON `{to_monitor, to_remove}` escrito por `sync_service._check_suggestions_changed`. Comparação com a rodada anterior decide se cria notificação `suggestions_changed`.
 
 Comportamento importante do seed:
 - se a chave não existe: insere;
@@ -311,6 +355,7 @@ Migrations atuais no projeto:
 - `56a880b51364_add_blacklist_and_review_state.py`
 - `d6df02f56387_add_channel_published_at.py`
 - `1f7c9e4b2d11_add_discovery_thumbnails_and_video_unavailable.py`
+- `a1c5e9d8b3f0_add_notifications_table.py`
 
 Lembrete operacional de produção:
 
@@ -371,8 +416,9 @@ Leitura mínima recomendada por área:
 - sync: `api/app/services/sync_service.py`, `api/app/core/scheduler.py`, `api/app/routers/sync.py`
 - analytics: `api/app/services/analytics_service_v2.py`, `api/app/routers/analytics.py`, `web/app/analytics/AnalyticsView.tsx`, `web/lib/api.ts`
 - sugestões: `api/app/services/suggestions_service_v2.py`, `api/app/routers/suggestions.py`, `web/app/monitoramento/MonitoramentoView.tsx`
-- configurações: `api/app/seed.py`, `api/app/services/settings_service.py`, `web/app/configuracoes/ConfiguracoesForm.tsx`
-- notificações: `web/components/NotificationsCenter.tsx`, `api/app/routers/notifications.py`, `api/app/schemas/notifications.py`
+- configurações: `api/app/seed.py`, `api/app/services/settings_service.py`, `api/app/services/settings_help.py`, `web/app/configuracoes/ConfiguracoesForm.tsx`, `web/components/HelpTooltip.tsx`
+- chaves YouTube (gerenciamento individual): `api/app/services/youtube_keys_service.py`, `api/app/routers/youtube_keys.py`, `api/app/services/youtube_client.py`, `web/components/YouTubeKeysManager.tsx`
+- notificações: `web/components/NotificationsCenter.tsx`, `api/app/routers/notifications.py`, `api/app/schemas/notifications.py`, `api/app/routers/youtube_keys.py` (endpoint /health)
 
 ## Regra de manutenção deste arquivo
 

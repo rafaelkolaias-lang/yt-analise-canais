@@ -17,6 +17,7 @@ Margem confortável dentro dos 10.000 units/dia por key.
 """
 from __future__ import annotations
 
+import json
 import logging
 from datetime import datetime
 from typing import Literal
@@ -24,23 +25,144 @@ from typing import Literal
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal
-from app.models import Channel, SyncRun, TrackedVideo
-from app.services import monitoring_service, youtube_client
+from app.models import AppSetting, Channel, SyncRun, TrackedVideo
+from app.services import (
+    monitoring_service,
+    notifications_service,
+    suggestions_service_v2,
+    youtube_client,
+)
 
 log = logging.getLogger(__name__)
 
 SyncType = Literal["manual", "scheduled"]
 
 
+# Chave em app_settings que guarda a ultima contagem de sugestoes vista pelo
+# sync. Usada pra decidir se uma rodada deve emitir notificacao
+# "Sugestoes mudaram".
+_LAST_SUGGESTIONS_KEY = "notifications.last_suggestions_count"
+
+
+def _check_suggestions_changed(db: Session) -> None:
+    """
+    Conta sugestoes atuais (to-monitor + to-remove), compara com a ultima
+    contagem persistida em `app_settings.notifications.last_suggestions_count`,
+    e cria uma notificacao `type=suggestions_changed` se ALGUM dos dois
+    aumentou. Atualiza a contagem persistida no fim.
+
+    Tudo via `safe_upsert` — falha aqui nunca derruba o sync (que ja esta
+    finalizado e commitado quando esta funcao roda).
+    """
+    try:
+        to_monitor = len(suggestions_service_v2.list_monitor_suggestions(db, limit=10_000))
+        to_remove = len(suggestions_service_v2.list_dead_suggestions(db, limit=10_000))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("suggestions_changed: contagem de sugestoes falhou: %s", exc)
+        return
+
+    row = db.query(AppSetting).filter_by(key=_LAST_SUGGESTIONS_KEY).one_or_none()
+    last: dict[str, int] = {}
+    if row and row.value:
+        try:
+            parsed = json.loads(row.value)
+            if isinstance(parsed, dict):
+                last = {
+                    "to_monitor": int(parsed.get("to_monitor", 0) or 0),
+                    "to_remove": int(parsed.get("to_remove", 0) or 0),
+                }
+        except (ValueError, TypeError):
+            last = {}
+
+    last_monitor = int(last.get("to_monitor", 0))
+    last_remove = int(last.get("to_remove", 0))
+    increased_monitor = max(0, to_monitor - last_monitor)
+    increased_remove = max(0, to_remove - last_remove)
+
+    if increased_monitor > 0 or increased_remove > 0:
+        parts: list[str] = []
+        if increased_monitor > 0:
+            parts.append(f"+{increased_monitor} para monitorar")
+        if increased_remove > 0:
+            parts.append(f"+{increased_remove} para remover")
+        message = (
+            ", ".join(parts)
+            + f" (total: {to_monitor} para monitorar, {to_remove} para remover)"
+        )
+        notifications_service.safe_upsert(
+            db,
+            type="suggestions_changed",
+            status="info",
+            title="Novas sugestões disponíveis",
+            message=message,
+            metadata={
+                "to_monitor": to_monitor,
+                "to_remove": to_remove,
+                "increased_monitor": increased_monitor,
+                "increased_remove": increased_remove,
+            },
+            # Sem source_key: cada novidade vira uma row nova (auditoria
+            # historica). Cap FIFO 20 do service garante que nao acumula sem
+            # limite.
+        )
+
+    # Atualiza estado persistido. Tudo via try/except amplo — sem source_key
+    # ou helper especifico, escrevemos direto na row de AppSetting.
+    try:
+        new_value = json.dumps(
+            {"to_monitor": to_monitor, "to_remove": to_remove},
+            separators=(",", ":"),
+        )
+        if row is None:
+            db.add(
+                AppSetting(
+                    key=_LAST_SUGGESTIONS_KEY,
+                    value=new_value,
+                    value_type="json",
+                )
+            )
+        else:
+            row.value = new_value
+        db.commit()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("suggestions_changed: persistir contagem falhou: %s", exc)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
     """
     Executa um sync. Persiste SyncRun e retorna.
     Tolera falhas individuais de canal/vídeo — registra em notes e continua.
+
+    Notificações:
+      - sync manual: cria card de progresso no início, atualiza por canal,
+        finaliza com success/error. Sempre visível.
+      - sync scheduled: nunca cria card no início; só cria card final se for
+        partial/failed (sucesso passa silencioso).
     """
     run = SyncRun(type=sync_type, status="running")
     db.add(run)
     db.commit()
     db.refresh(run)
+
+    # Source key permite atualizar a MESMA notification durante a execução
+    # (em vez de empilhar uma por evento).
+    notif_source = f"sync_{sync_type}:{run.id}"
+
+    if sync_type == "manual":
+        notifications_service.safe_upsert(
+            db,
+            type="task_progress",
+            status="running",
+            title="Verificação manual em andamento",
+            message="Iniciando…",
+            progress_pct=0,
+            metadata={"sync_run_id": run.id},
+            source_key=notif_source,
+        )
 
     errors: list[str] = []
     channels_processed = 0
@@ -53,6 +175,15 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         active_channels = (
             db.query(Channel).filter(Channel.is_active.is_(True)).all()
         )
+        active_videos = (
+            db.query(TrackedVideo).filter(TrackedVideo.status == "active").all()
+        )
+        total_units = len(active_channels) + len(active_videos)
+        done_units = 0
+
+        def _progress_message() -> str:
+            return f"{channels_processed} canais e {videos_processed} vídeos sincronizados…"
+
         for ch in active_channels:
             try:
                 monitoring_service.snapshot_channel(db, ch.id)
@@ -67,9 +198,21 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
                 log.warning("sync falha: %s", msg)
                 errors.append(msg)
 
-        active_videos = (
-            db.query(TrackedVideo).filter(TrackedVideo.status == "active").all()
-        )
+            done_units += 1
+            if sync_type == "manual" and total_units > 0 and done_units % 5 == 0:
+                # Atualiza a barra a cada 5 itens pra evitar overhead de DB.
+                pct = int(done_units * 100 / total_units)
+                notifications_service.safe_upsert(
+                    db,
+                    type="task_progress",
+                    status="running",
+                    title="Verificação manual em andamento",
+                    message=_progress_message(),
+                    progress_pct=pct,
+                    metadata={"sync_run_id": run.id},
+                    source_key=notif_source,
+                )
+
         for tv in active_videos:
             try:
                 monitoring_service.snapshot_video(db, tv.id)
@@ -84,6 +227,20 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
                 log.warning("sync falha: %s", msg)
                 errors.append(msg)
 
+            done_units += 1
+            if sync_type == "manual" and total_units > 0 and done_units % 5 == 0:
+                pct = int(done_units * 100 / total_units)
+                notifications_service.safe_upsert(
+                    db,
+                    type="task_progress",
+                    status="running",
+                    title="Verificação manual em andamento",
+                    message=_progress_message(),
+                    progress_pct=pct,
+                    metadata={"sync_run_id": run.id},
+                    source_key=notif_source,
+                )
+
         run.channels_processed = channels_processed
         run.videos_processed = videos_processed
         blocking_errors = [msg for msg in errors if not msg.startswith("info: ")]
@@ -95,6 +252,48 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         db.commit()
         db.refresh(run)
 
+        # Notificação final.
+        # - Manual: sempre vira card final (sucesso ou partial).
+        # - Scheduled: só cria card se NÃO foi success (silencioso quando ok).
+        should_notify_final = (
+            sync_type == "manual" or run.status != "success"
+        )
+        if should_notify_final:
+            if run.status == "success":
+                notifications_service.safe_upsert(
+                    db,
+                    type="task_done",
+                    status="success",
+                    title="Verificação concluída",
+                    message=(
+                        f"{channels_processed} canais e {videos_processed} vídeos sincronizados."
+                    ),
+                    progress_pct=100,
+                    metadata={"sync_run_id": run.id},
+                    source_key=notif_source,
+                )
+            else:
+                problems_summary = (
+                    "; ".join(blocking_errors)[:200] if blocking_errors else "concluído com avisos"
+                )
+                notifications_service.safe_upsert(
+                    db,
+                    type="task_error",
+                    status="error",
+                    title=(
+                        "Verificação manual concluída com falhas"
+                        if sync_type == "manual"
+                        else "Sync automático concluído com falhas"
+                    ),
+                    message=(
+                        f"{channels_processed} canais e {videos_processed} vídeos. "
+                        f"Erros: {problems_summary}"
+                    ),
+                    progress_pct=100,
+                    metadata={"sync_run_id": run.id, "errors_count": len(blocking_errors)},
+                    source_key=notif_source,
+                )
+
         # Etapa pós-sync: descoberta automática. Roda em try/except próprio
         # para que uma falha aqui NUNCA contamine o status do sync (que ja
         # esta finalizado e commitado acima). Import tardio evita ciclo.
@@ -104,6 +303,14 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         except Exception as exc:  # noqa: BLE001
             log.warning("auto-discovery pos-sync falhou: %s", exc)
 
+        # Etapa pós-sync: detecta novidades em sugestoes. Tem que vir DEPOIS
+        # da auto-discovery (que pode ter criado novas sugestoes). Engole
+        # qualquer falha — nao derruba sync.
+        try:
+            _check_suggestions_changed(db)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("suggestions_changed: checagem falhou: %s", exc)
+
         return run
 
     except Exception as exc:
@@ -112,6 +319,21 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         run.finished_at = datetime.utcnow()
         db.commit()
         db.refresh(run)
+        # Notifica falha total (qualquer tipo de sync).
+        notifications_service.safe_upsert(
+            db,
+            type="task_error",
+            status="error",
+            title=(
+                "Verificação manual falhou"
+                if sync_type == "manual"
+                else "Sync automático falhou"
+            ),
+            message=str(exc)[:200],
+            progress_pct=100,
+            metadata={"sync_run_id": run.id},
+            source_key=notif_source,
+        )
         raise
 
 

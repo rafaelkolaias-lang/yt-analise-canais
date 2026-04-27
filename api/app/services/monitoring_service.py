@@ -612,6 +612,27 @@ def list_best_videos_for_channel(db: Session, channel_id: int) -> list[TrackedVi
     )
 
 
+def list_best_videos_for_channels(
+    db: Session, channel_ids: list[int]
+) -> list[TrackedVideo]:
+    """
+    Versao em lote do anterior: 1 unica query SQL com `IN (...)` para todos os
+    canais. Retorna a lista plana ja ordenada por `first_tracked_at desc`; o
+    caller agrupa por `channel_id`.
+    """
+    if not channel_ids:
+        return []
+    return (
+        db.query(TrackedVideo)
+        .filter(
+            TrackedVideo.channel_id.in_(channel_ids),
+            TrackedVideo.tracking_source == "best_from_channel",
+        )
+        .order_by(desc(TrackedVideo.first_tracked_at))
+        .all()
+    )
+
+
 # =============================================================================
 # Resolução de input do usuário (link ou ID) → tipo + youtube_id
 # =============================================================================

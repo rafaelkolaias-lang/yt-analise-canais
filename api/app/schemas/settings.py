@@ -11,6 +11,11 @@ class AppSettingRead(BaseModel):
     DTO de leitura. Para settings com `is_secret=True`, `value` é retornado
     mascarado (nunca em texto plano), e `has_value` indica se há algo salvo.
     Para settings normais, `value` é o valor atual (como string).
+
+    `description` é o texto curto exibido ao lado do campo. `help` é o texto
+    longo (didático) exibido no tooltip do ícone "?". `help` vive em código
+    (`app.services.settings_help`) — não no banco — para evitar migration por
+    mudança puramente textual.
     """
     model_config = ConfigDict(from_attributes=True)
 
@@ -20,6 +25,7 @@ class AppSettingRead(BaseModel):
     is_secret: bool
     has_value: bool
     description: Optional[str] = None
+    help: Optional[str] = None
     updated_at: datetime
 
 

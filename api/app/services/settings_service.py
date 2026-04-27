@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.core.crypto import encrypt, mask
 from app.models import AppSetting
 from app.schemas.settings import AppSettingRead
+from app.services.settings_help import get_help
 
 
 def _to_read(setting: AppSetting) -> AppSettingRead:
@@ -34,6 +35,7 @@ def _to_read(setting: AppSetting) -> AppSettingRead:
         is_secret=setting.is_secret,
         has_value=has_value,
         description=setting.description,
+        help=get_help(setting.key),
         updated_at=setting.updated_at,
     )
 

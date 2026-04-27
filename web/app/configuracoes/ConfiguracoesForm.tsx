@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 
+import { HelpTooltip } from "@/components/HelpTooltip";
 import { NotificationsSettings } from "@/components/NotificationsSettings";
 import { SecretInput } from "@/components/SecretInput";
 import { SettingInput } from "@/components/SettingInput";
@@ -26,6 +27,10 @@ type Section = {
   subgroups?: Subgroup[];
 };
 
+// A ordem desta lista define a numeração mostrada na UI (1., 2., 3., …).
+// Os números 1.x, 2.x, 3.x… também aparecem no início de cada `description` e
+// `help` no backend (api/app/seed.py + api/app/services/settings_help.py),
+// permitindo referência cruzada nos textos do tooltip "?" (ex: "ver 4.2").
 const SECTIONS: Section[] = [
   {
     id: "sync",
@@ -106,6 +111,16 @@ const SECTIONS: Section[] = [
   },
 ];
 
+/**
+ * Tira o prefixo numerico ("1.1 — ", "7.2.3 - ") de uma description curta.
+ * O numero ja aparece no titulo da secao/subgrupo, entao na linha do campo
+ * mostramos so a parte textual pra nao ficar redundante.
+ */
+function stripPrefix(description: string | null | undefined): string {
+  if (!description) return "";
+  return description.replace(/^\s*\d+(?:\.\d+)*\s*[—\-:]\s*/, "");
+}
+
 type Props = {
   initial: AppSetting[];
 };
@@ -153,8 +168,9 @@ export function ConfiguracoesForm({ initial }: Props) {
     return (
       <div key={item.key} className="settings-row">
         <div className="settings-meta">
-          <div style={{ fontSize: 13, fontWeight: 500 }}>
-            {item.description || item.key}
+          <div style={{ fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
+            <span>{stripPrefix(item.description) || item.key}</span>
+            {item.help && <HelpTooltip text={item.help} />}
           </div>
           {item.description && (
             <code
@@ -192,7 +208,11 @@ export function ConfiguracoesForm({ initial }: Props) {
     );
   }
 
-  function renderSectionBody(section: Section, items: AppSetting[]) {
+  function renderSectionBody(
+    section: Section,
+    items: AppSetting[],
+    sectionNumber: number,
+  ) {
     if (!section.subgroups || section.subgroups.length === 0) {
       return <div className="settings-list">{items.map(renderRow)}</div>;
     }
@@ -205,10 +225,14 @@ export function ConfiguracoesForm({ initial }: Props) {
     });
     const leftover = items.filter((i) => !claimed.has(i.key));
 
+    let subIndex = 0;
     return (
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {subgroupBlocks.map(({ sub, items: subItems }) =>
-          subItems.length === 0 ? null : (
+        {subgroupBlocks.map(({ sub, items: subItems }) => {
+          if (subItems.length === 0) return null;
+          subIndex += 1;
+          const subPrefix = `${sectionNumber}.${subIndex}`;
+          return (
             <div key={sub.id}>
               <div style={{ marginBottom: 8 }}>
                 <h4
@@ -220,7 +244,7 @@ export function ConfiguracoesForm({ initial }: Props) {
                     letterSpacing: 0.5,
                   }}
                 >
-                  {sub.title}
+                  {subPrefix}. {sub.title}
                 </h4>
                 {sub.description && (
                   <p
@@ -233,8 +257,8 @@ export function ConfiguracoesForm({ initial }: Props) {
               </div>
               <div className="settings-list">{subItems.map(renderRow)}</div>
             </div>
-          )
-        )}
+          );
+        })}
         {leftover.length > 0 && (
           <div>
             <div style={{ marginBottom: 8 }}>
@@ -257,24 +281,33 @@ export function ConfiguracoesForm({ initial }: Props) {
     );
   }
 
+  // Numera as secoes na ordem de exibicao (so as que tem itens). Secao "Outros"
+  // (catch-all) nao recebe numero — fica fora do esquema 1.x, 2.x.
+  let sectionNumber = 0;
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       <NotificationsSettings />
-      {grouped.map(({ section, items }) =>
-        items.length === 0 ? null : (
+      {grouped.map(({ section, items }) => {
+        if (items.length === 0) return null;
+        const isCatchAll = section.id === "other";
+        if (!isCatchAll) sectionNumber += 1;
+        const heading = isCatchAll
+          ? section.title
+          : `${sectionNumber}. ${section.title}`;
+        return (
           <section key={section.id} className="card">
             <header style={{ marginBottom: 12 }}>
-              <h3 style={{ margin: 0, fontSize: 15 }}>{section.title}</h3>
+              <h3 style={{ margin: 0, fontSize: 15 }}>{heading}</h3>
               {section.description && (
                 <p className="muted" style={{ margin: "2px 0 0", fontSize: 12 }}>
                   {section.description}
                 </p>
               )}
             </header>
-            {renderSectionBody(section, items)}
+            {renderSectionBody(section, items, sectionNumber)}
           </section>
-        )
-      )}
+        );
+      })}
     </div>
   );
 }

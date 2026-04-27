@@ -26,11 +26,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "key": "sync_interval_hours",
         "value": "12",
         "value_type": "int",
-        "description": (
-            "De quantas em quantas HORAS o sistema sai pra sincronizar todos os canais "
-            "monitorados (puxar inscritos, views, novos uploads). Ex.: 12 = 2x por dia. "
-            "Mudar essa setting reagenda o scheduler na hora, sem reiniciar."
-        ),
+        "description": "1.1 — De quantas em quantas horas o sync automático roda.",
     },
     # -------------------------------------------------------------
     # Thresholds de busca/discovery
@@ -39,61 +35,37 @@ DEFAULT_SETTINGS: list[dict] = [
         "key": "search.window_days",
         "value": "14",
         "value_type": "int",
-        "description": (
-            "Quando você faz uma busca no YouTube, o sistema só pede vídeos publicados "
-            "nos últimos N dias. Ex.: 14 = 'me traz vídeos das duas últimas semanas'. "
-            "Vídeos mais antigos não são retornados pela API. Aplica-se à busca manual "
-            "E à descoberta automática."
-        ),
+        "description": "2.1 — Janela em dias da busca: só vídeos publicados nesse período.",
     },
     {
         "key": "search.min_views",
         "value": "5000",
         "value_type": "int",
-        "description": (
-            "Vídeos com MENOS views que isso são descartados antes de virar resultado. "
-            "Útil pra cortar vídeo zerado e focar em conteúdo que já provou alguma "
-            "tração."
-        ),
+        "description": "2.2 — Views mínimas para o vídeo entrar nos resultados.",
     },
     {
         "key": "search.min_vpd",
         "value": "500",
         "value_type": "int",
-        "description": (
-            "VPD = views por dia desde a publicação. Vídeos com VPD abaixo desse valor "
-            "são descartados. Ex.: vídeo de 7 dias com 5.000 views tem VPD ≈ 714 — "
-            "passa em 500. Mede velocidade, não tamanho."
-        ),
+        "description": "2.3 — VPD mínimo (views por dia desde a publicação).",
     },
     {
         "key": "search.min_duration_seconds",
         "value": "60",
         "value_type": "int",
-        "description": (
-            "Duração mínima do vídeo em segundos. Use 60+ para excluir Shorts (que têm "
-            "≤60s). 0 = aceita qualquer duração, inclusive Shorts."
-        ),
+        "description": "2.4 — Duração mínima do vídeo em segundos (60+ exclui Shorts).",
     },
     {
         "key": "search.languages",
         "value": "pt,en,es",
         "value_type": "str",
-        "description": (
-            "Idiomas em que a busca pede preferência (passa para o YouTube como "
-            "'relevanceLanguage'). CSV de códigos ISO. Ex.: 'pt,en,es' = busca cada "
-            "termo 3 vezes, uma por idioma. Mais idiomas = mais quota gasta."
-        ),
+        "description": "2.5 — Idiomas em que a busca pede preferência (CSV de códigos ISO).",
     },
     {
         "key": "search.pages_per_term",
         "value": "2",
         "value_type": "int",
-        "description": (
-            "Cada página da YouTube API devolve até 50 vídeos. 2 páginas = até 100 "
-            "vídeos por termo (por idioma). Cada página custa 100 units de quota — "
-            "subir esse número multiplica o gasto rapidamente."
-        ),
+        "description": "2.6 — Páginas pedidas por termo de busca (cada página = 50 vídeos, 100 units).",
     },
     # -------------------------------------------------------------
     # Filtro de idade do CANAL (aplicado na descoberta)
@@ -102,32 +74,19 @@ DEFAULT_SETTINGS: list[dict] = [
         "key": "channel.min_age_days",
         "value": "30",
         "value_type": "int",
-        "description": (
-            "Na descoberta, canais com idade MENOR que isso (em dias desde a criação no "
-            "YouTube) são descartados, junto com seus vídeos. Ex.: 30 = ignora canais "
-            "criados há menos de 1 mês. Use 0 pra desligar esse corte. Vale para "
-            "descoberta manual E automática."
-        ),
+        "description": "3.1 — Idade mínima do canal (dias desde a criação) para entrar na descoberta.",
     },
     {
         "key": "channel.max_age_days",
         "value": "3650",
         "value_type": "int",
-        "description": (
-            "Mesma regra do mínimo, só que pelo lado MÁXIMO. Canais MAIS VELHOS que isso "
-            "são descartados. Ex.: 3650 = 10 anos (default). Use um valor enorme (ex.: "
-            "99999) se você não quer limite superior."
-        ),
+        "description": "3.2 — Idade máxima do canal (dias desde a criação) para entrar na descoberta.",
     },
     {
         "key": "channel.vpd_saturation",
         "value": "100000",
         "value_type": "int",
-        "description": (
-            "Linha de corte para o sinal 'saturado' no Analytics. Canal cujo VPD médio "
-            "recente passa desse valor é considerado consolidado/grande demais para "
-            "ainda ser 'oportunidade'. Ex.: 100.000 VPD = canal já está em escala."
-        ),
+        "description": "3.3 — Linha de saturação de VPD: acima disso, o canal já é considerado consolidado.",
     },
     # -------------------------------------------------------------
     # Monitoramento
@@ -136,11 +95,7 @@ DEFAULT_SETTINGS: list[dict] = [
         "key": "monitor.best_videos_sample_size",
         "value": "10",
         "value_type": "int",
-        "description": (
-            "Quantos uploads MAIS RECENTES o sistema baixa de cada canal a cada sync, "
-            "para (a) detectar 'melhor vídeo recente' e (b) calcular uploads/semana. "
-            "Mais alto = visão mais ampla, custa 1 unit a mais por canal acima de 50."
-        ),
+        "description": "4.1 — Quantos uploads recentes baixar de cada canal monitorado por sync.",
     },
     # -------------------------------------------------------------
     # Analytics — thresholds de classificação de sinal
@@ -149,60 +104,37 @@ DEFAULT_SETTINGS: list[dict] = [
         "key": "analytics.promising_max_subscribers",
         "value": "50000",
         "value_type": "int",
-        "description": (
-            "Para o sinal 'promissor' (canal pequeno com VPD alto), inscritos têm que "
-            "estar ABAIXO desse valor. Acima disso o canal já é considerado 'grande' "
-            "demais pra ser uma oportunidade dark."
-        ),
+        "description": "5.1 — Teto de inscritos para o canal ser marcado como 'promissor'.",
     },
     {
         "key": "analytics.promising_vpd_ratio",
         "value": "0.3",
         "value_type": "float",
-        "description": (
-            "Para virar 'promissor', o VPD recente do canal precisa ser ≥ "
-            "channel.vpd_saturation × este valor. Ex.: saturação 100k × ratio 0.3 = "
-            "canal precisa ter VPD ≥ 30.000 para entrar no radar."
-        ),
+        "description": "5.2 — Piso de VPD para 'promissor', como fração da saturação (3.3).",
     },
     {
         "key": "analytics.recent_uploads_sample_size",
         "value": "5",
         "value_type": "int",
-        "description": (
-            "Quantos vídeos recentes o Analytics usa para calcular a MEDIANA de views "
-            "(que entra na regra de Canal Viral). 5 = pega os 5 vídeos mais "
-            "recentes do canal e tira a mediana."
-        ),
+        "description": "5.3 — Quantos uploads recentes entram na mediana de views.",
     },
     {
         "key": "analytics.breakout_max_subscribers",
         "value": "10000",
         "value_type": "int",
-        "description": (
-            "Para sinalizar 'Canal Viral' no Analytics, o canal precisa ter MENOS "
-            "inscritos que isso. A ideia é flagrar canal pequeno com vídeo "
-            "desproporcionalmente grande (sinal de descolamento)."
-        ),
+        "description": "5.4 — Teto de inscritos para o canal ser marcado como 'Canal Viral'.",
     },
     {
         "key": "analytics.breakout_min_median_views",
         "value": "50000",
         "value_type": "int",
-        "description": (
-            "Para 'Canal Viral', a mediana de views dos últimos uploads precisa "
-            "ser ≥ esse valor. Mediana alta + canal pequeno = vídeo desproporcional."
-        ),
+        "description": "5.5 — Piso da mediana de views recentes para 'Canal Viral'.",
     },
     {
         "key": "analytics.breakout_views_to_subs_ratio",
         "value": "5",
         "value_type": "float",
-        "description": (
-            "Para 'Canal Viral', a mediana de views recentes precisa ser pelo "
-            "menos N vezes maior que os inscritos. Ex.: 5 = mediana de views ≥ 5x "
-            "inscritos. Mede o quanto o conteúdo está performando ALÉM da audiência."
-        ),
+        "description": "5.6 — Multiplicador views ÷ inscritos para 'Canal Viral'.",
     },
     # -------------------------------------------------------------
     # API do YouTube
@@ -212,31 +144,19 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": None,
         "value_type": "secret",
         "is_secret": True,
-        "description": (
-            "Chaves da YouTube Data API v3 (uma por linha). O sistema rotaciona entre "
-            "elas — quando uma estoura quota, pula automaticamente para a próxima. "
-            "Cifradas no banco com Fernet (chave mestra em APP_SECRET_KEY)."
-        ),
+        "description": "8.1 — Chaves da YouTube Data API v3 (uma por linha). Cifradas no banco.",
     },
     {
         "key": "youtube.api_key_daily_quota",
         "value": "10000",
         "value_type": "int",
-        "description": (
-            "Quota diária POR KEY (default oficial do Google = 10.000 units/dia). "
-            "O sistema usa esse valor para decidir quando rotacionar e para calcular o "
-            "consumo agregado mostrado no painel de notificações."
-        ),
+        "description": "8.2 — Quota diária por chave (default oficial do Google: 10.000 units).",
     },
     {
         "key": "youtube.quota_usage_today",
         "value": None,
         "value_type": "json",
-        "description": (
-            "Estado interno: quanto cada key gastou HOJE (UTC) e qual foi o último "
-            "evento. Usado pela central de notificações. Reseta automaticamente todo "
-            "dia em UTC — não precisa mexer."
-        ),
+        "description": "8.3 — Estado interno do consumo de quota do dia (não mexa).",
     },
     # -------------------------------------------------------------
     # Descoberta automática (rodada após cada sync)
@@ -245,52 +165,31 @@ DEFAULT_SETTINGS: list[dict] = [
         "key": "discovery.auto_enabled",
         "value": "true",
         "value_type": "bool",
-        "description": (
-            "Liga/desliga a descoberta automática que roda DEPOIS de cada sync. Quando "
-            "ligada, o sistema busca novos canais usando uma mistura de termos seed "
-            "(você cadastra) + termos derivados (extraídos dos canais já descobertos)."
-        ),
+        "description": "6.1 — Liga/desliga a descoberta automática que roda após cada sync.",
     },
     {
         "key": "discovery.auto_quota_pct",
         "value": "0.5",
         "value_type": "float",
-        "description": (
-            "Fração da quota TOTAL diária (todas as keys somadas) que a descoberta "
-            "automática pode gastar por ciclo. Ex.: 0.5 com 1 key (10k units) = "
-            "descoberta tem orçamento de 5.000 units, deixando o resto para snapshots "
-            "e busca manual. Entre 0 e 1."
-        ),
+        "description": "6.2 — Fração da quota total diária reservada para a descoberta automática (0 a 1).",
     },
     {
         "key": "discovery.auto_keywords",
         "value": "\n".join(all_seed_terms()),
         "value_type": "str",
-        "description": (
-            "Lista de termos SEED da descoberta automática (um por linha). O sistema "
-            "rotaciona entre eles a cada execução e mistura com termos derivados "
-            "automaticamente dos canais já descobertos."
-        ),
+        "description": "6.3 — Termos seed da descoberta automática (um por linha).",
     },
     {
         "key": "discovery.auto_max_terms_per_run",
         "value": "30",
         "value_type": "int",
-        "description": (
-            "Limite máximo de termos por execução automática (seed + derivados). 30 com "
-            "1 página por termo × 3 idiomas = ~9.000 units. Subir esse número aumenta "
-            "cobertura, mas pode estourar o orçamento de auto_quota_pct."
-        ),
+        "description": "6.4 — Limite máximo de termos (seed + derivados) por execução.",
     },
     {
         "key": "discovery.auto_derived_term_min_freq",
         "value": "3",
         "value_type": "int",
-        "description": (
-            "Para uma palavra virar 'termo derivado', ela precisa aparecer pelo menos "
-            "N vezes nos títulos dos canais já descobertos. Filtro anti-ruído: 1 ou 2 "
-            "ocorrências geralmente é palavra solta sem padrão."
-        ),
+        "description": "6.5 — Frequência mínima para uma palavra virar 'termo derivado'.",
     },
     # -------------------------------------------------------------
     # Sugestões — recomendações exibidas em Monitoramento > Sugestões.
@@ -300,84 +199,55 @@ DEFAULT_SETTINGS: list[dict] = [
         "key": "suggestions.monitor_min_vpd",
         "value": "10000",
         "value_type": "int",
-        "description": (
-            "Regra simples para sugerir um canal: VPD recente precisa ser ≥ esse "
-            "valor. Combina com max_age_days no E lógico — as duas têm que passar."
-        ),
+        "description": "7.1.1 — VPD mínimo para sugerir um canal (regra simples).",
     },
     {
         "key": "suggestions.monitor_max_age_days",
         "value": "60",
         "value_type": "int",
-        "description": (
-            "Regra simples para sugerir um canal: idade do canal (em dias desde a "
-            "criação no YouTube) precisa ser ≤ esse valor. Combina com min_vpd no E "
-            "lógico."
-        ),
+        "description": "7.1.2 — Idade máxima do canal (dias) na regra simples.",
     },
     {
         "key": "suggestions.monitor_breakout_max_subscribers",
         "value": "10000",
         "value_type": "int",
-        "description": (
-            "Regra de Canal Viral: canal precisa ter MENOS inscritos que isso. "
-            "Todas as 5 regras 'breakout_*' valem em conjunto (E lógico)."
-        ),
+        "description": "7.2.1 — Teto de inscritos para 'Canal Viral'.",
     },
     {
         "key": "suggestions.monitor_breakout_max_age_days",
         "value": "30",
         "value_type": "int",
-        "description": (
-            "Regra de Canal Viral: idade do canal ≤ esse valor (em dias). "
-            "Combina com as outras 'breakout_*' no E lógico."
-        ),
+        "description": "7.2.2 — Idade máxima do canal (dias) para 'Canal Viral'.",
     },
     {
         "key": "suggestions.monitor_breakout_max_video_count",
         "value": "3",
         "value_type": "int",
-        "description": (
-            "Regra de Canal Viral: canal precisa ter MENOS que esse número TOTAL "
-            "de vídeos. A ideia é pegar canal com pouquíssimo conteúdo já estourando."
-        ),
+        "description": "7.2.3 — Número máximo de vídeos publicados para 'Canal Viral'.",
     },
     {
         "key": "suggestions.monitor_breakout_min_views",
         "value": "50000",
         "value_type": "int",
-        "description": (
-            "Regra de Canal Viral: o melhor vídeo descoberto do canal precisa "
-            "ter PELO MENOS esse número de views."
-        ),
+        "description": "7.2.4 — Views mínimas do melhor vídeo descoberto para 'Canal Viral'.",
     },
     {
         "key": "suggestions.monitor_breakout_min_vpd",
         "value": "2000",
         "value_type": "int",
-        "description": (
-            "Regra de Canal Viral: VPD do melhor vídeo descoberto precisa ser ≥ "
-            "esse valor."
-        ),
+        "description": "7.2.5 — VPD mínimo do melhor vídeo descoberto para 'Canal Viral'.",
     },
     {
         "key": "suggestions.dead_min_days_no_uploads",
         "value": "60",
         "value_type": "int",
-        "description": (
-            "Regra de canal 'morto': canal monitorado precisa estar há ≥ esse número "
-            "de dias SEM novos uploads. Combina com dead_max_vpd no E lógico."
-        ),
+        "description": "7.3.1 — Dias sem uploads para considerar o canal 'morto'.",
     },
     {
         "key": "suggestions.dead_max_vpd",
         "value": "2000",
         "value_type": "int",
-        "description": (
-            "Regra de canal 'morto': VPD recente do canal precisa ser ≤ esse valor. "
-            "Combina com dead_min_days_no_uploads no E lógico — só vira sugestão de "
-            "remoção se o canal está parado E com performance baixa."
-        ),
+        "description": "7.3.2 — VPD máximo para considerar o canal 'morto'.",
     },
 ]
 

@@ -161,6 +161,13 @@ yt-analise-canais-web/
 | Seed / defaults de `app_settings` | `api/app/seed.py` |
 | Leitura interna tipada de settings | `api/app/services/settings_reader.py` |
 | API pública de configurações | `api/app/services/settings_service.py`, `api/app/routers/settings.py` |
+| Textos longos (tooltip "?") das settings | `api/app/services/settings_help.py` |
+| Tooltip "?" da UI de configurações | `web/components/HelpTooltip.tsx`, `web/app/configuracoes/ConfiguracoesForm.tsx` |
+
+Observações atuais das settings/UI de configurações:
+- `description` em `app_settings` é o texto CURTO, prefixado com numeração (ex: `5.2 — ...`). É o que aparece ao lado do campo. Definido em `seed.py`.
+- `help` é o texto LONGO didático, exibido no tooltip do "?". Mora em código (`settings_help.py`), não no banco — evita migration por mudança puramente textual. Endpoint `/api/settings` mistura os dois antes de devolver.
+- Numeração da UI (1., 2., 3., …) é calculada na ordem de exibição em `ConfiguracoesForm.tsx`. Os textos referenciam outros itens pelo número (ex: "ver 4.2"). Manter `seed.py`/`settings_help.py` coerentes com a ordem das `SECTIONS` no frontend.
 
 ### YouTube API / quota
 

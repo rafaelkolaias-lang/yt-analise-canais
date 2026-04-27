@@ -69,6 +69,7 @@ export type AppSetting = {
   is_secret: boolean;
   has_value: boolean;
   description: string | null;
+  help: string | null;
   updated_at: string;
 };
 

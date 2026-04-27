@@ -54,6 +54,10 @@ app.add_middleware(
 )
 
 app.include_router(health.router)
+# Tambem expoe os mesmos endpoints sob /api/* para alinhar com o restante da
+# API (que e onde o NotificationsCenter chama /api/health/ops). Sem isso, o
+# frontend recebia 404 → cards "API degradada" falsamente.
+app.include_router(health.router, prefix="/api")
 app.include_router(settings_router.router)
 app.include_router(discovery.router)
 app.include_router(monitoring.router)

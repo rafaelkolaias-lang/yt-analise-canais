@@ -45,6 +45,10 @@ type LocalNotification = {
 // Polling do /health/ops. Usa o mesmo cadence do version (60s) — barato e
 // chega rapido o suficiente.
 const POLL_OPS_MS = 60_000;
+// Falhas consecutivas em /health/ops para considerar API degradada. Evita
+// falso-positivo na janela de startup pos-deploy (api responde antes do
+// scheduler/migrations terminarem).
+const OPS_DEGRADED_AFTER_FAILS = 2;
 // Falhas consecutivas no feed de notificacoes para considerar a central cega.
 const NOTIFICATIONS_OFFLINE_AFTER_FAILS = 3;
 
@@ -311,6 +315,9 @@ export function NotificationsCenter() {
   // Falhas consecutivas em /api/notifications/* — serve pra mostrar card
   // "Central indisponivel" quando o proprio feed de notificacoes morre.
   const notifFailsRef = useRef(0);
+  // Falhas consecutivas em /api/health/ops — evita card "API degradada"
+  // piscar logo apos redeploy enquanto subsistemas terminam de subir.
+  const opsFailsRef = useRef(0);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   const setLocal = useCallback(
@@ -485,6 +492,7 @@ export function NotificationsCenter() {
         const resp = await apiGet<HealthOpsResponse>("/api/health/ops");
         if (cancelled) return;
         if (resp.status === "ok") {
+          opsFailsRef.current = 0;
           clearLocal("api_degraded");
           return;
         }
@@ -495,19 +503,23 @@ export function NotificationsCenter() {
             failed.push(check.detail ? `${name}: ${check.detail}` : name);
           }
         }
-        setLocal("api_degraded", {
-          detail: failed.length
-            ? `Subsistema(s): ${failed.join("; ").slice(0, 200)}`
-            : undefined,
-        });
+        opsFailsRef.current += 1;
+        if (opsFailsRef.current >= OPS_DEGRADED_AFTER_FAILS) {
+          setLocal("api_degraded", {
+            detail: failed.length
+              ? `Subsistema(s): ${failed.join("; ").slice(0, 200)}`
+              : undefined,
+          });
+        }
       } catch {
         // /health/ops respondeu HTTP 503 (esperado quando degradado) — fetch
-        // joga error pra status != 2xx. Marcamos degradado com detalhe vazio,
-        // a menos que o version tambem esteja caindo (entao api_offline ja
-        // cobre e api_degraded pode ficar visivel mesmo assim — sao cards
-        // diferentes, nao mutuamente exclusivos).
+        // joga error pra status != 2xx. Tambem cai aqui em 404 (api desatualizada
+        // sem /api/health/ops) — nao confundir com degradacao real.
         if (cancelled) return;
-        setLocal("api_degraded");
+        opsFailsRef.current += 1;
+        if (opsFailsRef.current >= OPS_DEGRADED_AFTER_FAILS) {
+          setLocal("api_degraded");
+        }
       }
     }
     void tick();

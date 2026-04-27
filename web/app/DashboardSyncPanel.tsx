@@ -98,11 +98,11 @@ export function DashboardSyncPanel({ initial }: Props) {
 
       <div>
         <div className="muted" style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4 }}>
-          Próximo sync
+          Próximo sync automático
         </div>
         <div style={{ fontSize: 14, marginTop: 2 }}>{formatDateTime(next)}</div>
         <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
-          {relativeFromNow(next)} · intervalo {status?.interval_hours ?? "?"}h
+          {relativeFromNow(next)} · último sync + {status?.interval_hours ?? "?"}h
         </div>
       </div>
 

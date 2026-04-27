@@ -311,6 +311,16 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         except Exception as exc:  # noqa: BLE001
             log.warning("suggestions_changed: checagem falhou: %s", exc)
 
+        # Re-ancora o job automatico em `started_at + intervalo`, para que o
+        # "proximo sync" exibido nunca seja anterior ao ultimo run (manual
+        # ou agendado). Engole falha — re-ancorar nao e critico para o run.
+        try:
+            from app.core import scheduler
+
+            scheduler.reanchor(anchor=run.started_at)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("scheduler reanchor pos-sync falhou: %s", exc)
+
         return run
 
     except Exception as exc:
@@ -334,6 +344,14 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
             metadata={"sync_run_id": run.id},
             source_key=notif_source,
         )
+        # Mesmo em failure, re-ancora: started_at do run existe e a regra
+        # "proximo = ultimo + intervalo" precisa valer pra qualquer run.
+        try:
+            from app.core import scheduler
+
+            scheduler.reanchor(anchor=run.started_at)
+        except Exception as reanchor_exc:  # noqa: BLE001
+            log.warning("scheduler reanchor pos-sync (failed) falhou: %s", reanchor_exc)
         raise
 
 

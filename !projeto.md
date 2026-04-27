@@ -38,12 +38,14 @@ Em produção/local já existem:
 - **Endpoint batch `/api/monitoring/channels/best-videos?ids=…`** (1 query SQL com `IN (...)`, limite 200 ids/request) e UI da aba "Melhores vídeos" paginada (50 canais/página).
 - **Endpoint `/api/version`** com `started_at` fixo no `lifespan`. Frontend faz polling 60s — 3 falhas = card local "API offline há Xs"; mudança de `started_at` (redeploy) = card local "API atualizada — recarregue".
 - **Notificação `suggestions_changed`** criada no fim de `run_sync` (após auto-discovery) quando `to_monitor` ou `to_remove` cresce desde a última rodada. Card no popover tem link "Ver sugestões →" para `/monitoramento?tab=suggestions`. Estado persistido em `notifications.last_suggestions_count`.
+- **Scheduler ancorado no último `SyncRun`**: regra "próximo sync automático = `ultimo_sync.started_at + sync_interval_hours`". O job `auto_sync` é re-ancorado depois de CADA `run_sync` (manual, scheduled, partial e failed) e quando `sync_interval_hours` muda. No startup, lê o último `SyncRun` para ancorar o `IntervalTrigger` com `start_date = ultimo + intervalo` (UTC). Sem nenhum sync no banco, mantém o trigger em `now + intervalo`. Eliminada a contradição "ultimo sync agora · próximo em 15h" no dashboard.
 
 Pontos importantes recentes:
 - Os services antigos `analytics_service.py` e `suggestions_service.py` foram removidos.
 - O backend ativo usa `analytics_service_v2.py` e `suggestions_service_v2.py`.
-- A central de notificações é expansível por cards independentes: hoje tem quota agregada e chave queimada; adicionar novo card é só append em `cards` no `NotificationsCenter.tsx`.
+- A central de notificações é expansível por cards independentes. Hoje renderiza: cards persistidos da tabela `notifications` + cards transientes (chave queimada, API offline, API atualizada). Cota saiu da central — vive em `QuotaSidebarWidget` na sidebar.
 - Termo exibido "Canal Viral" mapeia para chaves técnicas `breakout_*` (preservadas por compatibilidade — não renomear sem migration de dados).
+- Pool SQLAlchemy ajustado para `pool_size=10 + max_overflow=20` (teto 30 conexões) em `api/app/core/database.py`. O default 5+10 esgotava quando a UI disparava muitas requests em paralelo (ex: aba "Best" carregando N canais simultaneamente). Não reduzir sem antes mover essa carga para endpoints batch.
 
 ## Stack
 
@@ -171,7 +173,7 @@ yt-analise-canais-web/
 | Configuração via `.env` | `api/app/core/config.py`, `api/.env.example` |
 | Banco / sessão SQLAlchemy | `api/app/core/database.py` |
 | Criptografia de secrets | `api/app/core/crypto.py` |
-| Scheduler / reagendamento do sync | `api/app/core/scheduler.py` |
+| Scheduler / reagendamento do sync (ancorado no último `SyncRun`) | `api/app/core/scheduler.py` |
 | Models / schema real do banco | `api/app/models/domain.py` |
 | Migrações | `api/migrations/env.py`, `api/migrations/versions/*` |
 | Seed / defaults de `app_settings` | `api/app/seed.py` |
@@ -191,7 +193,7 @@ Observações atuais das settings/UI de configurações:
 |---|---|
 | Cliente YouTube, rotação de keys, persistência de quota | `api/app/services/youtube_client.py` |
 | Gerenciamento individual de chaves (add/remove/unburn) | `api/app/services/youtube_keys_service.py`, `api/app/routers/youtube_keys.py`, `api/app/schemas/youtube_keys.py` |
-| Resumo de quota para a central de notificações | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py`, `api/app/services/youtube_client.py` |
+| Resumo de quota para o `QuotaSidebarWidget` (`GET /api/notifications/quota-summary`) | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py`, `api/app/services/youtube_client.py` |
 | UI de chaves (verde/amarelo/vermelho + add/remove/reativar) | `web/components/YouTubeKeysManager.tsx` (renderizado dentro da seção 8 em `web/app/configuracoes/ConfiguracoesForm.tsx`) |
 
 Observações atuais da quota e chaves:
@@ -205,7 +207,7 @@ Observações atuais da quota e chaves:
   - `DELETE /api/youtube/keys/{fp}` → remove (limpa também a marca de queimada).
   - `POST /api/youtube/keys/{fp}/unburn` → reativa sem teste; queima de novo se ainda estiver inválida.
   - `GET /api/youtube/keys/health` → resumo `{total, ok, quota_exhausted, burned, last_burned_at}`. Usado pela central de notificações pra mostrar card vermelho quando há queimada.
-- A central de notificações faz polling de `/api/youtube/keys/health` em background (60s) pro badge do sino refletir queimadas mesmo com painel fechado.
+- A central de notificações faz polling de `/api/youtube/keys/health` em background (60s); o badge do sino fica vermelho e o popover mostra card vermelho quando há chave queimada, mesmo com painel fechado.
 - `youtube.api_keys`, `youtube.api_keys_burned` e `youtube.quota_usage_today` ficam ESCONDIDAS do form genérico de Configurações via `INTERNAL_KEYS` em `ConfiguracoesForm.tsx` — chaves aparecem só via `YouTubeKeysManager`.
 
 ### Descoberta
@@ -243,6 +245,7 @@ Observações atuais do monitoramento:
 - Canais removidos vão para `status='removed'` e entram na blacklist.
 - Aba "Melhores vídeos" do `MonitoramentoView` é PAGINADA (50 canais/página) e cada troca de página faz UMA request batch ao endpoint plural. O endpoint singular só é usado quando atualizamos um canal específico após snapshot manual.
 - `MonitoramentoView` aceita deep-link `?tab=channels|videos|best|suggestions`. A central de notificações usa `?tab=suggestions` para o link "Ver sugestões →" do card `suggestions_changed`.
+- O scheduler é re-ancorado pelo `sync_service` ao final de cada `run_sync` (sucesso, partial, failed). A próxima execução automática SEMPRE cai em `started_at + sync_interval_hours` em vez do horário em que o processo subiu — vale tanto para sync manual quanto agendado.
 
 ### Sugestões
 
@@ -280,7 +283,7 @@ O Analytics ativo já contempla:
 |---|---|
 | Tabela e model de notificações persistentes | `api/app/models/domain.py` (`Notification`), migration `a1c5e9d8b3f0_add_notifications_table.py` |
 | Service (CRUD + cap FIFO) | `api/app/services/notifications_service.py` |
-| Endpoints persistidos + quota legada | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py` |
+| Endpoints persistidos + `quota-summary` (feed do widget da sidebar) | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py` |
 | Componente global / popover | `web/components/NotificationsCenter.tsx` |
 | Widget de cota fixo na sidebar | `web/components/QuotaSidebarWidget.tsx` (renderizado em `web/components/Sidebar.tsx`) |
 | Mount global | `web/app/layout.tsx` |
@@ -291,6 +294,7 @@ O Analytics ativo já contempla:
 
 Observações (estado atual após Fases 1–5):
 - **Sistema persistente** em tabela `notifications`. Cada row = um EVENTO histórico (não estado).
+- Model `Notification` em `api/app/models/domain.py` tem índices `ix_notifications_dismissed_created` (lista visível ordenada) e `ix_notifications_source_key` (lookup do upsert). Campo `metadata_json` é JSON livre lido pelo frontend (ex: link de destino, ids).
 - Tipos: `task_progress`, `task_done`, `task_error`, `system_alert`, `suggestions_changed`.
 - `source_key` permite atualizar a MESMA notificação durante a execução em vez de empilhar (ex: sync manual atualiza progresso na mesma row).
 - Cap FIFO de **20 não-dispensadas** — ao criar a 21ª, a mais antiga é auto-dispensada (não deletada — auditoria preservada).
@@ -312,8 +316,9 @@ Observações (estado atual após Fases 1–5):
 | Shell e providers globais | `web/app/layout.tsx` |
 | CSS global / responsividade | `web/app/globals.css` |
 
-Observação:
-- A sidebar já usa o nome **RK Youtube Analyzer**.
+Observações:
+- A sidebar já usa o nome **RK Youtube Analyzer** e renderiza `QuotaSidebarWidget` no rodapé.
+- Convenções de classe CSS em `globals.css`: prefixo `.notif-*` para a central de notificações (`notif-root`, `notif-toggle`, `notif-badge`, `notif-popover`, `notif-card`, `notif-card-title`, `notif-popover-header/body`, variantes `notif-badge-info|warn|danger`, `notif-perm-*`); prefixo `.quota-widget-*` para o widget de cota na sidebar (`quota-widget`, `-header`, `-refresh`, `-bar`, `-bar-fill`, `-numbers`, `-pct`, `-foot`, `-empty`, `-loading`, `-error`). Reutilizar essas classes em mudanças novas em vez de inventar.
 
 ## App settings: estado atual
 

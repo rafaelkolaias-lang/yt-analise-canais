@@ -112,14 +112,15 @@ const SECTIONS: Section[] = [
 ];
 
 /**
- * Tira o prefixo numerico ("1.1 — ", "7.2.3 - ") de uma description curta.
- * O numero ja aparece no titulo da secao/subgrupo, entao na linha do campo
- * mostramos so a parte textual pra nao ficar redundante.
+ * Settings que existem no banco por necessidade interna (estado persistido,
+ * cache, etc.) mas que o usuario nao deve ver/editar na UI. Sao filtradas
+ * antes do agrupamento em SECTIONS.
  */
-function stripPrefix(description: string | null | undefined): string {
-  if (!description) return "";
-  return description.replace(/^\s*\d+(?:\.\d+)*\s*[—\-:]\s*/, "");
-}
+const INTERNAL_KEYS = new Set<string>([
+  // Estado de consumo da quota do dia, escrito pelo youtube_client a cada
+  // request. Reseta sozinho em UTC. Nao deve aparecer no painel.
+  "youtube.quota_usage_today",
+]);
 
 type Props = {
   initial: AppSetting[];
@@ -143,13 +144,14 @@ export function ConfiguracoesForm({ initial }: Props) {
   }
 
   const grouped = useMemo(() => {
+    const visible = settings.filter((s) => !INTERNAL_KEYS.has(s.key));
     const used = new Set<string>();
     const groups = SECTIONS.map((section) => {
-      const items = settings.filter((s) => section.match(s.key));
+      const items = visible.filter((s) => section.match(s.key));
       items.forEach((i) => used.add(i.key));
       return { section, items };
     });
-    const other = settings.filter((s) => !used.has(s.key));
+    const other = visible.filter((s) => !used.has(s.key));
     if (other.length > 0) {
       groups.push({
         section: {
@@ -169,7 +171,7 @@ export function ConfiguracoesForm({ initial }: Props) {
       <div key={item.key} className="settings-row">
         <div className="settings-meta">
           <div style={{ fontSize: 13, fontWeight: 500, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
-            <span>{stripPrefix(item.description) || item.key}</span>
+            <span>{item.description || item.key}</span>
             {item.help && <HelpTooltip text={item.help} />}
           </div>
           {item.description && (

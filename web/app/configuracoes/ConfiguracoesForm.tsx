@@ -7,6 +7,7 @@ import { NotificationsSettings } from "@/components/NotificationsSettings";
 import { SecretInput } from "@/components/SecretInput";
 import { SettingInput } from "@/components/SettingInput";
 import { useToast } from "@/components/Toaster";
+import { YouTubeKeysManager } from "@/components/YouTubeKeysManager";
 import { apiPut, type AppSetting } from "@/lib/api";
 
 type Subgroup = {
@@ -120,6 +121,12 @@ const INTERNAL_KEYS = new Set<string>([
   // Estado de consumo da quota do dia, escrito pelo youtube_client a cada
   // request. Reseta sozinho em UTC. Nao deve aparecer no painel.
   "youtube.quota_usage_today",
+  // Lista de chaves queimadas (interno). Aparece via YouTubeKeysManager.
+  "youtube.api_keys_burned",
+  // youtube.api_keys agora tem UI dedicada (YouTubeKeysManager) renderizada
+  // logo apos a secao de "API do YouTube". Esconder aqui evita o textarea
+  // generico de SecretInput.
+  "youtube.api_keys",
 ]);
 
 type Props = {
@@ -296,6 +303,7 @@ export function ConfiguracoesForm({ initial }: Props) {
         const heading = isCatchAll
           ? section.title
           : `${sectionNumber}. ${section.title}`;
+        const isYouTubeSection = section.id === "youtube";
         return (
           <section key={section.id} className="card">
             <header style={{ marginBottom: 12 }}>
@@ -306,6 +314,11 @@ export function ConfiguracoesForm({ initial }: Props) {
                 </p>
               )}
             </header>
+            {isYouTubeSection && (
+              <div style={{ marginBottom: 16 }}>
+                <YouTubeKeysManager />
+              </div>
+            )}
             {renderSectionBody(section, items, sectionNumber)}
           </section>
         );

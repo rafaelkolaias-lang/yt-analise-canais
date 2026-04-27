@@ -169,18 +169,28 @@ Observações atuais das settings/UI de configurações:
 - `help` é o texto LONGO didático, exibido no tooltip do "?". Mora em código (`settings_help.py`), não no banco — evita migration por mudança puramente textual. Endpoint `/api/settings` mistura os dois antes de devolver.
 - Numeração da UI (1., 2., 3., …) é calculada na ordem de exibição em `ConfiguracoesForm.tsx`. Os textos referenciam outros itens pelo número (ex: "ver 4.2"). Manter `seed.py`/`settings_help.py` coerentes com a ordem das `SECTIONS` no frontend.
 
-### YouTube API / quota
+### YouTube API / quota / chaves
 
 | Assunto | Arquivos |
 |---|---|
 | Cliente YouTube, rotação de keys, persistência de quota | `api/app/services/youtube_client.py` |
+| Gerenciamento individual de chaves (add/remove/unburn) | `api/app/services/youtube_keys_service.py`, `api/app/routers/youtube_keys.py`, `api/app/schemas/youtube_keys.py` |
 | Resumo de quota para a central de notificações | `api/app/routers/notifications.py`, `api/app/schemas/notifications.py`, `api/app/services/youtube_client.py` |
+| UI de chaves (verde/amarelo/vermelho + add/remove/reativar) | `web/components/YouTubeKeysManager.tsx` (renderizado dentro da seção 8 em `web/app/configuracoes/ConfiguracoesForm.tsx`) |
 
-Observações atuais da quota:
-- Identidade da key é `fingerprint` = SHA-256[:16] da string da key (não vaza segredo).
-- Persistência em `app_settings.youtube.quota_usage_today` usa o formato novo `used_by_fingerprint: {fp: int}`. O formato legado `used_per_key: [int]` ainda é lido por compatibilidade e migrado transparente. Reordenar/remover/adicionar keys no mesmo dia preserva o consumo correto.
+Observações atuais da quota e chaves:
+- Identidade da chave = `fingerprint` (SHA-256[:16]). Estável e não vaza segredo.
+- Persistência em `app_settings.youtube.quota_usage_today` usa `used_by_fingerprint: {fp: int}` (formato legado `used_per_key: [int]` ainda é lido por compat).
 - `_persist_state()` faz merge aditivo sob `SELECT ... FOR UPDATE` — concorrência entre processos não perde consumo.
-- `read_quota_summary()` ainda devolve `used_per_key` derivado por posição atual (compat com schema/UI).
+- Lista de chaves QUEIMADAS (HTTP 400 keyInvalid) vive em `app_settings.youtube.api_keys_burned` (JSON não cifrado, indexado por fp). `youtube_client._get` marca queimada e segue rotacionando em vez de explodir.
+- Endpoints REST por fingerprint:
+  - `GET /api/youtube/keys` → lista com status `ok|quota_exhausted|burned`.
+  - `POST /api/youtube/keys` → adiciona (idempotente).
+  - `DELETE /api/youtube/keys/{fp}` → remove (limpa também a marca de queimada).
+  - `POST /api/youtube/keys/{fp}/unburn` → reativa sem teste; queima de novo se ainda estiver inválida.
+  - `GET /api/youtube/keys/health` → resumo `{total, ok, quota_exhausted, burned, last_burned_at}`. Usado pela central de notificações pra mostrar card vermelho quando há queimada.
+- A central de notificações faz polling de `/api/youtube/keys/health` em background (60s) pro badge do sino refletir queimadas mesmo com painel fechado.
+- `youtube.api_keys`, `youtube.api_keys_burned` e `youtube.quota_usage_today` ficam ESCONDIDAS do form genérico de Configurações via `INTERNAL_KEYS` em `ConfiguracoesForm.tsx` — chaves aparecem só via `YouTubeKeysManager`.
 
 ### Descoberta
 

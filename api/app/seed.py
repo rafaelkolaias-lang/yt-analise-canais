@@ -45,13 +45,13 @@ DEFAULT_SETTINGS: list[dict] = [
     },
     {
         "key": "search.min_vpd",
-        "value": "500",
+        "value": "1000",
         "value_type": "int",
         "description": "2.3 — VPD mínimo (views por dia desde a publicação).",
     },
     {
         "key": "search.min_duration_seconds",
-        "value": "60",
+        "value": "120",
         "value_type": "int",
         "description": "2.4 — Duração mínima do vídeo em segundos (60+ exclui Shorts).",
     },
@@ -72,19 +72,19 @@ DEFAULT_SETTINGS: list[dict] = [
     # -------------------------------------------------------------
     {
         "key": "channel.min_age_days",
-        "value": "30",
+        "value": "7",
         "value_type": "int",
         "description": "3.1 — Idade mínima do canal (dias desde a criação) para entrar na descoberta.",
     },
     {
         "key": "channel.max_age_days",
-        "value": "3650",
+        "value": "365",
         "value_type": "int",
         "description": "3.2 — Idade máxima do canal (dias desde a criação) para entrar na descoberta.",
     },
     {
         "key": "channel.vpd_saturation",
-        "value": "100000",
+        "value": "200000",
         "value_type": "int",
         "description": "3.3 — Linha de saturação de VPD: acima disso, o canal já é considerado consolidado.",
     },
@@ -108,7 +108,7 @@ DEFAULT_SETTINGS: list[dict] = [
     },
     {
         "key": "analytics.promising_vpd_ratio",
-        "value": "0.3",
+        "value": "0.2",
         "value_type": "float",
         "description": "5.2 — Piso de VPD para 'promissor', como fração da saturação (3.3).",
     },
@@ -132,7 +132,7 @@ DEFAULT_SETTINGS: list[dict] = [
     },
     {
         "key": "analytics.breakout_views_to_subs_ratio",
-        "value": "5",
+        "value": "2",
         "value_type": "float",
         "description": "5.6 — Multiplicador views ÷ inscritos para 'Canal Viral'.",
     },
@@ -157,6 +157,12 @@ DEFAULT_SETTINGS: list[dict] = [
         "value": None,
         "value_type": "json",
         "description": "8.3 — Estado interno do consumo de quota do dia (não mexa).",
+    },
+    {
+        "key": "youtube.api_keys_burned",
+        "value": None,
+        "value_type": "json",
+        "description": "8.4 — Estado interno: chaves YouTube marcadas como queimadas (não mexa).",
     },
     # -------------------------------------------------------------
     # Descoberta automática (rodada após cada sync)
@@ -203,25 +209,25 @@ DEFAULT_SETTINGS: list[dict] = [
     },
     {
         "key": "suggestions.monitor_max_age_days",
-        "value": "60",
+        "value": "90",
         "value_type": "int",
         "description": "7.1.2 — Idade máxima do canal (dias) na regra simples.",
     },
     {
         "key": "suggestions.monitor_breakout_max_subscribers",
-        "value": "10000",
+        "value": "20000",
         "value_type": "int",
         "description": "7.2.1 — Teto de inscritos para 'Canal Viral'.",
     },
     {
         "key": "suggestions.monitor_breakout_max_age_days",
-        "value": "30",
+        "value": "90",
         "value_type": "int",
         "description": "7.2.2 — Idade máxima do canal (dias) para 'Canal Viral'.",
     },
     {
         "key": "suggestions.monitor_breakout_max_video_count",
-        "value": "3",
+        "value": "10",
         "value_type": "int",
         "description": "7.2.3 — Número máximo de vídeos publicados para 'Canal Viral'.",
     },

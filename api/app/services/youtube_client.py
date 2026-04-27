@@ -120,6 +120,9 @@ class YouTubeClient:
     # No merge, o valor final fica saturado em pelo menos `daily_quota` para
     # propagar a saturação aos próximos processos sem inflar o total.
     _pending_exhausted_fp: set[str] = field(default_factory=set)
+    # Fingerprints já marcadas como QUEIMADAS no banco (chave inválida/revogada).
+    # São completamente ignoradas em `_pick_key`. Hidratado no build_from_db.
+    burned_fps: set[str] = field(default_factory=set)
 
     def __post_init__(self) -> None:
         if not self.keys:
@@ -147,11 +150,20 @@ class YouTubeClient:
         n = len(self.keys)
         for offset in range(n):
             idx = (self.current + offset) % n
+            fp = self.fingerprints[idx]
+            if fp in self.burned_fps:
+                continue
             if self._remaining(idx) >= cost:
                 self.current = idx
                 return idx
+        active = n - len(self.burned_fps & set(self.fingerprints))
+        if active == 0:
+            raise NoAPIKeyConfigured(
+                "Todas as chaves estão marcadas como inválidas. "
+                "Verifique em /configuracoes."
+            )
         raise QuotaExceeded(
-            f"Todas as {n} API key(s) atingiram o limite diário ({self.daily_quota})."
+            f"Todas as {active} chave(s) ativas atingiram o limite diário ({self.daily_quota})."
         )
 
     def _maybe_rollover(self) -> None:
@@ -298,6 +310,27 @@ class YouTubeClient:
         self.used_by_fp[fp] = self.daily_quota
         self._pending_exhausted_fp.add(fp)
 
+    def _mark_key_burned(self, fp: str, *, reason: str) -> None:
+        """
+        Marca a chave como queimada no banco (persistente, sobrevive a
+        reinício) e ignora-a no `_pick_key` deste processo daqui pra frente.
+        Tolerante a falha de DB — não bloqueia a request.
+        """
+        self.burned_fps.add(fp)
+        if self.db is None:
+            return
+        try:
+            # Import tardio para evitar ciclo (service usa AppSetting daqui).
+            from app.services import youtube_keys_service
+
+            youtube_keys_service.mark_burned(self.db, fp, reason=reason, label=reason)
+        except Exception as exc:  # pragma: no cover
+            print(f"[youtube_client] falha ao persistir queimada de {fp}: {exc}")
+            try:
+                self.db.rollback()
+            except Exception:
+                pass
+
     def _get(self, endpoint: str, params: dict, event_label: Optional[str] = None) -> dict:
         cost = QUOTA_COST.get(endpoint, 1)
         url = f"{YOUTUBE_API_BASE}/{endpoint}"
@@ -331,8 +364,17 @@ class YouTubeClient:
                 continue
 
             if r.status_code == 400 and "keyinvalid" in body.replace(" ", ""):
-                raise InvalidAPIKey(
-                    f"API key inválida (índice {idx}). Verifique em /configuracoes."
+                # Em vez de explodir a request, marca a chave como QUEIMADA e
+                # rotaciona pra próxima. O usuário descobre via central de
+                # notificações + tela de Configurações > API do YouTube, e
+                # corrige no console do Google quando puder.
+                fp = self.fingerprints[idx]
+                self._mark_key_burned(fp, reason="keyInvalid")
+                if attempt < max_attempts:
+                    continue
+                raise NoAPIKeyConfigured(
+                    "Chave inválida e nenhuma outra disponível. "
+                    "Verifique em /configuracoes."
                 )
 
             if r.status_code in (500, 502, 503, 504):
@@ -540,9 +582,14 @@ def _read_daily_quota(db: Session) -> int:
 
 def build_from_db(db: Session) -> YouTubeClient:
     """Monta o cliente lendo keys cifradas, quota e estado persistido do banco."""
+    # Import tardio: youtube_keys_service depende deste módulo via AppSetting,
+    # então só importamos quando o cliente é construído (sem ciclo de import-time).
+    from app.services import youtube_keys_service
+
     raw_keys = _decrypt_keys_from_db(db)
     daily_quota = _read_daily_quota(db)
     fingerprints = [_fingerprint(k) for k in raw_keys]
+    burned_fps = youtube_keys_service.list_burned_fingerprints(db)
 
     used_by_fp, last_event, date_utc = _load_persisted_state(db, fingerprints)
 
@@ -554,6 +601,7 @@ def build_from_db(db: Session) -> YouTubeClient:
         db=db,
         date_utc=date_utc,
         last_event=last_event,
+        burned_fps=set(burned_fps),
     )
 
 

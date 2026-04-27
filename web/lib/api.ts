@@ -62,6 +62,18 @@ export async function apiDelete(path: string): Promise<void> {
   }
 }
 
+export async function apiDeleteJSON<T>(path: string): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "DELETE",
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`DELETE ${path} falhou: ${res.status} ${text}`);
+  }
+  return res.json();
+}
+
 export type AppSetting = {
   key: string;
   value: string | null;
@@ -71,6 +83,42 @@ export type AppSetting = {
   description: string | null;
   help: string | null;
   updated_at: string;
+};
+
+// =============================================================================
+// YouTube API keys (gerenciamento individual)
+// =============================================================================
+export type YouTubeKeyStatus = "ok" | "quota_exhausted" | "burned";
+
+export type YouTubeKeyEntry = {
+  fingerprint: string;
+  masked: string;
+  index: number;
+  status: YouTubeKeyStatus;
+  used_today: number;
+  daily_quota: number;
+  burned_at: string | null;
+  burned_reason: string | null;
+  burned_label: string | null;
+};
+
+export type YouTubeKeyAddResponse = {
+  entry: YouTubeKeyEntry;
+  created: boolean;
+};
+
+export type YouTubeKeyOpResponse = {
+  fingerprint: string;
+  changed: boolean;
+};
+
+export type YouTubeKeysHealth = {
+  total: number;
+  ok: number;
+  quota_exhausted: number;
+  burned: number;
+  last_burned_at: string | null;
+  last_burned_reason: string | null;
 };
 
 // =============================================================================

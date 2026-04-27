@@ -14,6 +14,7 @@ from app.routers import (
     settings as settings_router,
     suggestions,
     sync as sync_router,
+    youtube_keys,
 )
 
 settings = get_settings()
@@ -51,6 +52,7 @@ app.include_router(sync_router.router)
 app.include_router(analytics.router)
 app.include_router(suggestions.router)
 app.include_router(notifications.router)
+app.include_router(youtube_keys.router)
 
 
 @app.get("/", tags=["root"])

@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { apiGet, type QuotaSummary } from "@/lib/api";
+import { apiGet, type QuotaSummary, type YouTubeKeysHealth } from "@/lib/api";
 
 // Cada card do painel é independente: para adicionar uma nova notificação no
 // futuro basta adicionar mais um item à `cards` lá embaixo. O shell (ícone +
@@ -35,6 +35,35 @@ function fmtRelative(iso: string | null | undefined): string {
   if (hr < 24) return `há ${hr}h`;
   const day = Math.round(hr / 24);
   return `há ${day}d`;
+}
+
+function BurnedKeysCard({ data }: { data: YouTubeKeysHealth | null }) {
+  // So mostra o card quando ha chaves queimadas — caso contrario o card some
+  // pra nao poluir a central com info irrelevante.
+  if (!data || data.burned <= 0) return null;
+  return (
+    <div className="notif-card" style={{ borderLeft: "3px solid var(--danger)" }}>
+      <div className="notif-card-title" style={{ color: "var(--danger)" }}>
+        Chave inválida da YouTube API
+      </div>
+      <div style={{ fontSize: 12, marginTop: 4 }}>
+        {data.burned === 1
+          ? "1 chave foi marcada como inválida"
+          : `${data.burned} chaves foram marcadas como inválidas`}
+        {data.last_burned_reason && (
+          <span className="muted"> · {data.last_burned_reason}</span>
+        )}
+      </div>
+      {data.last_burned_at && (
+        <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+          última: {fmtRelative(data.last_burned_at)}
+        </div>
+      )}
+      <div style={{ marginTop: 8, fontSize: 11 }}>
+        <a href="/configuracoes">Ver em Configurações →</a>
+      </div>
+    </div>
+  );
 }
 
 function QuotaCard({ data, error, loading }: { data: QuotaSummary | null; error: string | null; loading: boolean }) {
@@ -119,9 +148,31 @@ function QuotaCard({ data, error, loading }: { data: QuotaSummary | null; error:
 export function NotificationsCenter() {
   const [open, setOpen] = useState(false);
   const [quota, setQuota] = useState<QuotaSummary | null>(null);
+  const [health, setHealth] = useState<YouTubeKeysHealth | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+
+  // Polling em background do health pra que o badge "queimada" reflita o
+  // estado mesmo com o painel fechado. Cadência baixa (60s) — não é
+  // urgente pro usuario saber em segundos.
+  useEffect(() => {
+    let cancelled = false;
+    async function loadHealth() {
+      try {
+        const resp = await apiGet<YouTubeKeysHealth>("/api/youtube/keys/health");
+        if (!cancelled) setHealth(resp);
+      } catch {
+        // silencioso — o card so aparece se houver dado, sem bloquear o sino.
+      }
+    }
+    void loadHealth();
+    const t = setInterval(loadHealth, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
+  }, []);
 
   // Recarrega o quota-summary toda vez que abre, e também a cada 30s enquanto
   // estiver aberto, pra refletir consumo de syncs em background.
@@ -134,8 +185,14 @@ export function NotificationsCenter() {
       setLoading(true);
       setError(null);
       try {
-        const resp = await apiGet<QuotaSummary>("/api/notifications/quota-summary");
-        if (!cancelled) setQuota(resp);
+        const [q, h] = await Promise.all([
+          apiGet<QuotaSummary>("/api/notifications/quota-summary"),
+          apiGet<YouTubeKeysHealth>("/api/youtube/keys/health").catch(() => null),
+        ]);
+        if (!cancelled) {
+          setQuota(q);
+          if (h) setHealth(h);
+        }
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -179,17 +236,24 @@ export function NotificationsCenter() {
   }, [open]);
 
   // Lista de cards. Para adicionar nova notificação no futuro: append aqui.
+  // O card de "chave queimada" so renderiza se houver chaves nesse estado.
   const cards: NotificationCard[] = [
+    {
+      id: "youtube-keys-burned",
+      render: () => <BurnedKeysCard data={health} />,
+    },
     {
       id: "youtube-quota",
       render: () => <QuotaCard data={quota} error={error} loading={loading} />,
     },
   ];
 
-  // Badge no ícone: aparece quando uso ≥ 70% (warn) ou ≥ 90% (danger).
+  // Badge no ícone: prioridade chave queimada (danger) > quota >=90% (danger)
+  // > quota >=70% (warn). Sem badge se nada disso.
   const pct =
     quota && quota.total_quota > 0 ? (quota.used / quota.total_quota) * 100 : 0;
-  const badgeKind = pct >= 90 ? "danger" : pct >= 70 ? "warn" : null;
+  const hasBurned = (health?.burned ?? 0) > 0;
+  const badgeKind = hasBurned || pct >= 90 ? "danger" : pct >= 70 ? "warn" : null;
 
   return (
     <div className="notif-root" ref={popoverRef}>

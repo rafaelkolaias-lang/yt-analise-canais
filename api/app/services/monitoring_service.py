@@ -11,7 +11,7 @@ Fluxo típico:
 from __future__ import annotations
 
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
 from sqlalchemy import desc
@@ -272,7 +272,11 @@ def _recent_upload_metrics(
         return (None, None)
 
     videos = client.videos_by_ids(video_ids)
-    now = datetime.utcnow()
+    # `published` vem tz-aware do parse_iso_dt (`...Z` -> +00:00). Usamos
+    # `datetime.now(timezone.utc)` aqui para o cutoff tambem ser tz-aware,
+    # caso contrario `published >= cutoff` quebra com "can't compare
+    # offset-naive and offset-aware datetimes" e o snapshot do canal falha.
+    now = datetime.now(timezone.utc)
     cutoff = now - timedelta(days=weekly_window_days)
 
     best = None

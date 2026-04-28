@@ -225,7 +225,8 @@ export type ReviewProgress = {
 export type DiscoveryRun = {
   id: number;
   terms: string;
-  status: "running" | "success" | "failed";
+  // "partial" = cota estourou no meio do ciclo mas resultados foram salvos.
+  status: "running" | "success" | "partial" | "failed";
   started_at: string;
   finished_at: string | null;
   channels_found: number;
@@ -402,7 +403,7 @@ export type ResolveResult = {
 export type DiscoveryRunSummary = {
   id: number;
   terms: string;
-  status: "running" | "success" | "failed";
+  status: "running" | "success" | "partial" | "failed";
   started_at: string;
   finished_at: string | null;
   channels_found: number;

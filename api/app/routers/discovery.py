@@ -81,8 +81,15 @@ def search(req: SearchRequest, db: Session = Depends(get_db)) -> DiscoveryRunRea
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail="Informe pelo menos um termo.")
 
     try:
+        # `run_discovery` agora pode retornar com status="partial" quando a cota
+        # estourar no meio do ciclo mas algo já tiver sido coletado. Nesse caso
+        # nao relanca QuotaExceeded — o run vem em mãos e este endpoint
+        # responde 200 com o payload parcial. So cai no `except QuotaExceeded`
+        # quando a cota estoura ANTES de qualquer coleta aproveitavel.
         run = discovery_service.run_discovery(db, filters)
     except youtube_client.NoAPIKeyConfigured as exc:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+    except youtube_client.APIKeyDecryptError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     except youtube_client.InvalidAPIKey as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))

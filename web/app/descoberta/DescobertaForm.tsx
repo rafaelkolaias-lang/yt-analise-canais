@@ -82,9 +82,18 @@ export function DescobertaForm({ defaults }: Props) {
       const result = await apiPost<DiscoveryRun>("/api/discovery/search", req);
       setRun(result);
       setAddState({});
-      toast.success(
-        `Busca concluída: ${result.channels_found} canais, ${result.videos_found} vídeos.`
-      );
+      if (result.status === "partial") {
+        // Cota estourou no meio do ciclo mas a API conseguiu salvar parte
+        // dos resultados. Mostramos o que tem, com aviso explicito.
+        toast.info(
+          `Cota esgotada. Mostrando resultados parciais: ${result.channels_found} canais, ${result.videos_found} vídeos.`,
+          7000,
+        );
+      } else {
+        toast.success(
+          `Busca concluída: ${result.channels_found} canais, ${result.videos_found} vídeos.`,
+        );
+      }
     } catch (err) {
       toast.error(`Falha na busca: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -280,6 +289,32 @@ export function DescobertaForm({ defaults }: Props) {
               {run.channels_found} canais · {run.videos_found} vídeos
             </span>
           </header>
+
+          {run.status === "partial" && (
+            <div
+              className="card"
+              style={{
+                background: "rgba(255, 170, 60, 0.08)",
+                borderLeft: "3px solid var(--warn)",
+                marginBottom: 12,
+                fontSize: 12,
+              }}
+            >
+              <strong>Resultados parciais.</strong>{" "}
+              <span className="muted">
+                A cota da YouTube API esgotou durante esta busca. Mostrando o
+                que foi coletado antes da interrupção.
+                {run.notes && (
+                  <>
+                    {" "}
+                    <span style={{ display: "block", marginTop: 4, fontSize: 11 }}>
+                      {run.notes}
+                    </span>
+                  </>
+                )}
+              </span>
+            </div>
+          )}
 
           <h4 style={{ margin: "8px 0 6px", fontSize: 13 }}>Vídeos</h4>
           <div className="table-wrap">

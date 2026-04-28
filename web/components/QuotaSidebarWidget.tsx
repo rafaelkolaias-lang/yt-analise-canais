@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 
 import { apiGet, type QuotaSummary } from "@/lib/api";
 
-const POLL_MS = 60_000;
+const POLL_MS = 30_000;
 
 function fmt(v: number | null | undefined): string {
   if (v === null || v === undefined) return "—";

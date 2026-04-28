@@ -19,6 +19,17 @@ from app.models import Channel, ChannelSnapshot, ChannelTag, Tag, TrackedVideo, 
 from app.services import settings_reader
 
 ALLOWED_STATUS_FILTERS = ("all", "active", "paused", "removed")
+ALLOWED_SIGNAL_FILTERS = ("all", "heating", "promising", "stable", "saturated", "unknown")
+
+# Ordem do MELHOR para o PIOR. Indice menor = prioridade maior.
+# `unknown` cobre canais sem snapshot e snapshots com signal nulo/desconhecido.
+SIGNAL_PRIORITY: dict[str, int] = {
+    "heating": 0,
+    "promising": 1,
+    "stable": 2,
+    "saturated": 3,
+    "unknown": 4,
+}
 
 
 def _channel_query(db: Session, status: Optional[str]):
@@ -336,7 +347,27 @@ def niches(db: Session) -> list[dict]:
     return out
 
 
-def channels_paginated(db: Session, page: int, page_size: int, status: Optional[str] = None) -> dict:
+def channels_paginated(
+    db: Session,
+    page: int,
+    page_size: int,
+    status: Optional[str] = None,
+    signal: Optional[str] = None,
+) -> dict:
+    """
+    Lista canais paginada com filtros opcionais de `status` (situacao do
+    canal) e `signal` (sinal do ULTIMO snapshot). Independente do filtro,
+    a lista vem ORDENADA do melhor sinal para o pior, com criterios
+    secundarios estaveis. A ordenacao e feita ANTES da paginacao para que
+    a primeira pagina sempre traga os canais mais interessantes.
+
+    Critério de ordenação:
+      1. SIGNAL_PRIORITY do sinal do ultimo snapshot (heating < promising
+         < stable < saturated < unknown).
+      2. `avg_vpd_recent` desc (canais com mais movimento primeiro dentro
+         do mesmo grupo).
+      3. `created_at` desc (mais recentes primeiro como desempate final).
+    """
     if page < 1:
         page = 1
     if page_size < 1:
@@ -344,21 +375,52 @@ def channels_paginated(db: Session, page: int, page_size: int, status: Optional[
     if page_size > 50:
         page_size = 50
 
+    if signal and signal not in ALLOWED_SIGNAL_FILTERS:
+        signal = "all"
+
     base = _channel_query(db, status)
     if base is None:
         return {"page": page, "page_size": page_size, "total": 0, "total_pages": 0, "items": []}
 
-    total = base.with_entities(func.count(Channel.id)).scalar() or 0
+    # Carrega todos os canais que passam no filtro de status, junto com
+    # o sinal do ultimo snapshot. O custo extra do "carregar todos antes
+    # de paginar" e aceitavel: a base ativa hoje e ~dezenas/centenas de
+    # canais e precisamos do sinal pra ordenar. Se a base crescer muito,
+    # vale criar uma materialized view ou cache do "sinal atual por canal".
+    channels = base.all()
+    latest_by_channel = {snap.channel_id: snap for snap in _latest_snapshots(db, {c.id for c in channels})}
+
+    def _signal_of(ch: Channel) -> str:
+        snap = latest_by_channel.get(ch.id)
+        if snap and snap.signal in SIGNAL_PRIORITY:
+            return snap.signal
+        return "unknown"
+
+    # Filtro por sinal (depois de derivar o sinal de cada canal).
+    if signal and signal != "all":
+        channels = [c for c in channels if _signal_of(c) == signal]
+
+    # Ordenacao por prioridade de sinal -> avg_vpd -> created_at desc.
+    def _sort_key(ch: Channel) -> tuple:
+        snap = latest_by_channel.get(ch.id)
+        sig = _signal_of(ch)
+        priority = SIGNAL_PRIORITY.get(sig, SIGNAL_PRIORITY["unknown"])
+        # avg_vpd_recent desc: negativo pra inverter (None vira -inf efetivo).
+        vpd = snap.avg_vpd_recent if snap and snap.avg_vpd_recent is not None else -1.0
+        # created_at desc: usa timestamp; canais sem created_at (nao deveria
+        # acontecer) vao pro fim.
+        created = ch.created_at.timestamp() if ch.created_at else 0.0
+        return (priority, -float(vpd), -created)
+
+    channels.sort(key=_sort_key)
+
+    total = len(channels)
     total_pages = (total + page_size - 1) // page_size if total else 0
-    rows = (
-        base.order_by(desc(Channel.created_at))
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
+    start = (page - 1) * page_size
+    page_channels = channels[start : start + page_size]
 
     items: list[dict] = []
-    for channel in rows:
+    for channel in page_channels:
         summary = channel_summary(db, channel.id)
         items.append(
             {

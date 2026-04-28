@@ -121,7 +121,19 @@ def _read_daily_quota(db: Session) -> int:
     return 10000
 
 
+def _today_utc_str() -> str:
+    """Mesma regra de `youtube_client._today_utc_str` — sincronia obrigatoria."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
 def _read_used_by_fp(db: Session) -> dict[str, int]:
+    """
+    Le `youtube.quota_usage_today` aplicando rollover UTC. Se o `date_utc`
+    salvo for diferente do dia UTC atual, devolve {} — caso contrario, sidebar
+    e lista individual divergem (sidebar via `_load_persisted_state` ja zera
+    no rollover, mas aqui o uso de ontem persistia e marcava chaves como
+    `quota_exhausted` indevidamente).
+    """
     row = db.query(AppSetting).filter_by(key=QUOTA_USAGE_SETTING).one_or_none()
     if not row or not row.value:
         return {}
@@ -129,6 +141,13 @@ def _read_used_by_fp(db: Session) -> dict[str, int]:
         payload = json.loads(row.value)
     except (TypeError, ValueError):
         return {}
+
+    # Rollover UTC: estado de outro dia nao conta. Mesma logica do
+    # `youtube_client._load_persisted_state`.
+    saved_date = str(payload.get("date_utc") or "")
+    if saved_date and saved_date != _today_utc_str():
+        return {}
+
     # Formato novo
     new = payload.get("used_by_fingerprint")
     if isinstance(new, dict):

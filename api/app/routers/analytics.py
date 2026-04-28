@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
 _STATUS_PATTERN = "^(all|active|paused|removed)$"
+_SIGNAL_PATTERN = "^(all|heating|promising|stable|saturated|unknown)$"
 
 
 @router.get("/overview", response_model=AnalyticsOverview)
@@ -36,9 +37,12 @@ def get_channels_paginated(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=50),
     status: str = Query("active", pattern=_STATUS_PATTERN),
+    signal: str = Query("all", pattern=_SIGNAL_PATTERN),
     db: Session = Depends(get_db),
 ) -> PaginatedChannelAnalytics:
-    data = analytics_service.channels_paginated(db, page, page_size, status=status)
+    data = analytics_service.channels_paginated(
+        db, page, page_size, status=status, signal=signal
+    )
     return PaginatedChannelAnalytics(**data)
 
 

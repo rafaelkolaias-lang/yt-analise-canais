@@ -30,6 +30,25 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "Todos" },
 ];
 
+type SignalFilter =
+  | "all"
+  | "heating"
+  | "promising"
+  | "stable"
+  | "saturated"
+  | "unknown";
+
+// Ordem reflete a prioridade do backend (melhor → pior). "Todos" fica
+// primeiro pra ser o default visual.
+const SIGNAL_OPTIONS: { value: SignalFilter; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "heating", label: "Aquecendo" },
+  { value: "promising", label: "Promissor" },
+  { value: "stable", label: "Estável" },
+  { value: "saturated", label: "Saturado" },
+  { value: "unknown", label: "Sem sinal" },
+];
+
 const BUCKET_OPTIONS: { value: ChartBucket; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "1d", label: "1 dia" },
@@ -78,6 +97,7 @@ function consistencyLabel(label: string | null | undefined): string {
 
 export function AnalyticsView({ niches }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
+  const [signalFilter, setSignalFilter] = useState<SignalFilter>("all");
   const [chartBucket, setChartBucket] = useState<ChartBucket>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
@@ -98,7 +118,7 @@ export function AnalyticsView({ niches }: Props) {
             `/api/analytics/overview?status=${statusFilter}`
           ),
           apiGet<PaginatedChannelAnalytics>(
-            `/api/analytics/channels?page=${page}&page_size=${pageSize}&status=${statusFilter}`
+            `/api/analytics/channels?page=${page}&page_size=${pageSize}&status=${statusFilter}&signal=${signalFilter}`
           ),
         ]);
         if (!cancelled) {
@@ -115,7 +135,7 @@ export function AnalyticsView({ niches }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [page, pageSize, statusFilter, reloadTick]);
+  }, [page, pageSize, statusFilter, signalFilter, reloadTick]);
 
   const totalPages = data?.total_pages ?? 0;
   const total = data?.total ?? 0;
@@ -170,6 +190,51 @@ export function AnalyticsView({ niches }: Props) {
         </div>
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
           mostrando {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label.toLowerCase()}
+        </span>
+      </section>
+
+      {/* Barra de filtro de sinal — ordenacao padrao da lista vem do
+          melhor para o pior (heating > promising > stable > saturated >
+          sem sinal) e este filtro restringe a apenas um sinal quando
+          necessario. */}
+      <section
+        className="card"
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Sinal</div>
+        <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {SIGNAL_OPTIONS.map((opt) => {
+            const active = opt.value === signalFilter;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  if (opt.value !== signalFilter) {
+                    setPage(1);
+                    setSignalFilter(opt.value);
+                  }
+                }}
+                className={active ? "btn-primary" : "btn-ghost"}
+                style={{ fontSize: 12, padding: "6px 12px" }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+          {signalFilter === "all"
+            ? "ordenado do melhor para o pior"
+            : `apenas ${SIGNAL_OPTIONS.find((o) => o.value === signalFilter)?.label.toLowerCase()}`}
         </span>
       </section>
 

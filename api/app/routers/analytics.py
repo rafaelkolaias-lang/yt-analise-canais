@@ -12,6 +12,7 @@ from app.schemas.analytics import (
     ChannelAnalyticsSummary,
     NicheRow,
     PaginatedChannelAnalytics,
+    PaginatedVideosByChannel,
     TimeseriesPoint,
 )
 from app.services import analytics_service_v2 as analytics_service
@@ -21,6 +22,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 _STATUS_PATTERN = "^(all|active|paused|removed)$"
 _SIGNAL_PATTERN = "^(all|heating|promising|stable|saturated|unknown)$"
+_SORT_PATTERN = "^(signal|score)$"
 
 
 @router.get("/overview", response_model=AnalyticsOverview)
@@ -38,10 +40,11 @@ def get_channels_paginated(
     page_size: int = Query(10, ge=1, le=50),
     status: str = Query("active", pattern=_STATUS_PATTERN),
     signal: str = Query("all", pattern=_SIGNAL_PATTERN),
+    sort: str = Query("signal", pattern=_SORT_PATTERN),
     db: Session = Depends(get_db),
 ) -> PaginatedChannelAnalytics:
     data = analytics_service.channels_paginated(
-        db, page, page_size, status=status, signal=signal
+        db, page, page_size, status=status, signal=signal, sort=sort
     )
     return PaginatedChannelAnalytics(**data)
 
@@ -73,3 +76,16 @@ def get_channel_summary(
 @router.get("/niches", response_model=list[NicheRow])
 def get_niches(db: Session = Depends(get_db)) -> list[NicheRow]:
     return [NicheRow(**r) for r in analytics_service.niches(db)]
+
+
+@router.get("/videos-by-channel", response_model=PaginatedVideosByChannel)
+def get_videos_by_channel(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=20),
+    channel_status: str = Query("active", pattern=_STATUS_PATTERN),
+    db: Session = Depends(get_db),
+) -> PaginatedVideosByChannel:
+    data = analytics_service.videos_by_channel(
+        db, page, page_size, channel_status=channel_status
+    )
+    return PaginatedVideosByChannel(**data)

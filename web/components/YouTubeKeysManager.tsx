@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { useConfirm } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toaster";
 import {
   apiDeleteJSON,
@@ -51,6 +52,7 @@ export function YouTubeKeysManager() {
   const [newKey, setNewKey] = useState("");
   const [busy, setBusy] = useState(false);
   const toast = useToast();
+  const confirm = useConfirm();
 
   async function refresh() {
     setLoading(true);
@@ -93,7 +95,14 @@ export function YouTubeKeysManager() {
 
   async function handleRemove(fp: string, masked: string) {
     if (busy) return;
-    if (!confirm(`Remover a chave ${masked}? Os serviços que dependem dela vão ficar sem essa chave.`)) {
+    if (
+      !(await confirm({
+        title: "Remover chave",
+        message: `Remover a chave ${masked}? Os serviços que dependem dela vão ficar sem essa chave.`,
+        confirmLabel: "Remover",
+        danger: true,
+      }))
+    ) {
       return;
     }
     setBusy(true);

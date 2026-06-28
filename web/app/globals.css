@@ -269,9 +269,81 @@ a {
 .analytics-channel-card {
   background: var(--bg-elev);
   border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
   border-radius: 10px;
   padding: 16px;
   margin-bottom: 16px;
+}
+
+/* Segmentacao visual por estagio (item 2): borda esquerda colorida pelo
+   sinal do canal, pra bater o olho e separar aquecendo/promissor/etc. */
+.analytics-channel-card.signal-heating {
+  border-left-color: #ef4444;
+}
+.analytics-channel-card.signal-promising {
+  border-left-color: #4f8cff;
+}
+.analytics-channel-card.signal-stable {
+  border-left-color: var(--success);
+}
+.analytics-channel-card.signal-saturated {
+  border-left-color: #8b93ad;
+}
+.analytics-channel-card.signal-unknown {
+  border-left-color: var(--border);
+}
+
+/* Badge de Score de Oportunidade (item 3). */
+.opportunity-badge {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.1;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  letter-spacing: 0.5px;
+}
+
+/* Modal de confirmacao (ConfirmDialog) -------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 16px;
+}
+
+.modal-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  width: 100%;
+  max-width: 420px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.modal-title {
+  margin: 0 0 8px;
+  font-size: 16px;
+}
+
+.modal-message {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--text-dim);
+  line-height: 1.5;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .analytics-channel-header {
@@ -302,6 +374,17 @@ a {
   margin-bottom: 4px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.analytics-chart-avg {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+.analytics-chart-avg strong {
+  color: var(--text);
 }
 
 .analytics-empty-chart {

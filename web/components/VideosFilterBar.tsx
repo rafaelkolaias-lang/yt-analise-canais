@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { MonitoredVideo } from "@/lib/api";
 
@@ -34,7 +34,7 @@ export type VideoFilters = {
 
 export const DEFAULT_VIDEO_FILTERS: VideoFilters = {
   search: "",
-  status: "all",
+  status: "active",
   source: "all",
   minViews: "",
   maxViews: "",
@@ -82,6 +82,26 @@ export function VideosFilterBar({
   const set = (patch: Partial<VideoFilters>) =>
     onChange({ ...filters, ...patch });
 
+  // Busca com debounce (mesma lógica do ChannelsFilterBar): só propaga após
+  // 250ms parado, evitando re-render da lista a cada tecla. Refs guardam os
+  // valores mais recentes pra o timeout não reverter mudanças feitas em outros
+  // campos durante a espera.
+  const [searchInput, setSearchInput] = useState(filters.search);
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  useEffect(() => {
+    setSearchInput(filters.search);
+  }, [filters.search]);
+  useEffect(() => {
+    if (searchInput === filtersRef.current.search) return;
+    const t = setTimeout(() => {
+      onChangeRef.current({ ...filtersRef.current, search: searchInput });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const isFiltered = filteredCount !== totalCount;
 
   return (
@@ -90,8 +110,8 @@ export function VideosFilterBar({
         type="text"
         className="input filter-bar-search"
         placeholder="Buscar por título..."
-        value={filters.search}
-        onChange={(e) => set({ search: e.target.value })}
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
       />
 
       <select

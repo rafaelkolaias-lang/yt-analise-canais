@@ -15,6 +15,11 @@ log = logging.getLogger(__name__)
 # Tabelas que precisam existir pra o app operar minimamente. Migrations.
 ESSENTIAL_TABLES = ("app_settings", "notifications", "sync_runs")
 
+# Mensagem genérica devolvida ao cliente em falhas. O texto cru da exceção
+# (que pode conter host/usuário/schema do banco ou internals do driver) vai
+# SÓ para o log do servidor — estes endpoints são públicos/sem autenticação.
+_GENERIC_DETAIL = "Falha interna — verifique os logs do servidor."
+
 
 @router.get("/health")
 def healthcheck(settings: Settings = Depends(get_settings)) -> dict:
@@ -38,7 +43,7 @@ def healthcheck_db(db: Session = Depends(get_db)) -> JSONResponse:
     except Exception as exc:
         log.warning("/health/db: banco inacessivel: %s", exc, exc_info=True)
         return JSONResponse(
-            {"status": "error", "db": "unreachable", "detail": str(exc)},
+            {"status": "error", "db": "unreachable", "detail": _GENERIC_DETAIL},
             status_code=503,
         )
 
@@ -64,7 +69,7 @@ def healthcheck_notifications(db: Session = Depends(get_db)) -> JSONResponse:
             {
                 "status": "error",
                 "notifications": "unreachable",
-                "detail": str(exc),
+                "detail": _GENERIC_DETAIL,
             },
             status_code=503,
         )
@@ -88,7 +93,8 @@ def healthcheck_ops(db: Session = Depends(get_db)) -> JSONResponse:
         db.execute(text("SELECT 1"))
         checks["db"] = {"ok": True}
     except Exception as exc:
-        checks["db"] = {"ok": False, "detail": str(exc)}
+        log.warning("/health/ops db check falhou: %s", exc, exc_info=True)
+        checks["db"] = {"ok": False, "detail": _GENERIC_DETAIL}
         overall_ok = False
 
     # 2) tabelas essenciais existem
@@ -102,7 +108,8 @@ def healthcheck_ops(db: Session = Depends(get_db)) -> JSONResponse:
         else:
             checks["tables"] = {"ok": True}
     except Exception as exc:
-        checks["tables"] = {"ok": False, "detail": str(exc)}
+        log.warning("/health/ops tables check falhou: %s", exc, exc_info=True)
+        checks["tables"] = {"ok": False, "detail": _GENERIC_DETAIL}
         overall_ok = False
 
     # 3) scheduler vivo + job registrado
@@ -122,7 +129,8 @@ def healthcheck_ops(db: Session = Depends(get_db)) -> JSONResponse:
         if not ok:
             overall_ok = False
     except Exception as exc:
-        checks["scheduler"] = {"ok": False, "detail": str(exc)}
+        log.warning("/health/ops scheduler check falhou: %s", exc, exc_info=True)
+        checks["scheduler"] = {"ok": False, "detail": _GENERIC_DETAIL}
         overall_ok = False
 
     # 4) decrypt das chaves YouTube quando ha valor salvo. "Sem chave" e
@@ -135,10 +143,12 @@ def healthcheck_ops(db: Session = Depends(get_db)) -> JSONResponse:
             youtube_client._decrypt_keys_from_db(db)
             checks["youtube_keys_decrypt"] = {"ok": True}
         except youtube_client.APIKeyDecryptError as exc:
-            checks["youtube_keys_decrypt"] = {"ok": False, "detail": str(exc)}
+            log.warning("/health/ops decrypt das chaves falhou: %s", exc, exc_info=True)
+            checks["youtube_keys_decrypt"] = {"ok": False, "detail": _GENERIC_DETAIL}
             overall_ok = False
     except Exception as exc:
-        checks["youtube_keys_decrypt"] = {"ok": False, "detail": str(exc)}
+        log.warning("/health/ops youtube_keys check falhou: %s", exc, exc_info=True)
+        checks["youtube_keys_decrypt"] = {"ok": False, "detail": _GENERIC_DETAIL}
         overall_ok = False
 
     body = {"status": "ok" if overall_ok else "error", "checks": checks}

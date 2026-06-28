@@ -1,22 +1,43 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ChannelAvatar } from "@/components/ChannelAvatar";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toaster";
 import { VideoThumbnail } from "@/components/VideoThumbnail";
 import {
+  apiGet,
   apiPost,
   type DiscoveryDefaults,
   type DiscoveryRun,
   type DiscoverySearchRequest,
   type MonitoredChannel,
   type MonitoredVideo,
+  type QuotaSummary,
   type ResultChannel,
   type ResultVideo,
 } from "@/lib/api";
 
 type Props = { defaults: DiscoveryDefaults };
+
+// Custo da YouTube Data API: cada chamada de busca (search.list) custa 100
+// unidades. Espelha QUOTA_COST["search"] no backend. A hidratação de
+// vídeos/canais custa ~1 por lote de 50 — desprezível perto da busca.
+const SEARCH_UNIT_COST = 100;
+
+function parseList(raw: string): string[] {
+  return raw
+    .split(/[\n,]/)
+    .map((t) => t.trim())
+    .filter(Boolean);
+}
+
+// Sanitiza um número vindo de input (que pode ser NaN ao apagar o campo, ou
+// negativo): garante inteiro >= min, caindo no `fallback` quando inválido.
+function clampInt(v: number, min: number, fallback: number): number {
+  return Number.isFinite(v) ? Math.max(min, Math.floor(v)) : fallback;
+}
 
 type AddState = Record<string, "idle" | "loading" | "done" | "error">;
 
@@ -47,33 +68,76 @@ export function DescobertaForm({ defaults }: Props) {
   const [loading, setLoading] = useState(false);
   const [run, setRun] = useState<DiscoveryRun | null>(null);
   const [addState, setAddState] = useState<AddState>({});
+  const [remainingQuota, setRemainingQuota] = useState<number | null>(null);
   const toast = useToast();
+  const confirm = useConfirm();
+
+  // Cota restante hoje, pra contextualizar o custo estimado da busca.
+  useEffect(() => {
+    let cancelled = false;
+    apiGet<QuotaSummary>("/api/notifications/quota-summary")
+      .then((q) => {
+        if (!cancelled) setRemainingQuota(q.remaining);
+      })
+      .catch(() => {
+        /* sem cota não quebra a tela — apenas não mostramos o "restante" */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Custo estimado (item 16): nº de chamadas de busca × 100 unidades.
+  // Chamadas = termos × idiomas × páginas por termo.
+  const estimate = useMemo(() => {
+    const terms = parseList(termsRaw);
+    const langs = parseList(languages);
+    const searchCalls =
+      terms.length * Math.max(langs.length, 1) * Math.max(pagesPerTerm, 1);
+    return { searchCalls, units: searchCalls * SEARCH_UNIT_COST };
+  }, [termsRaw, languages, pagesPerTerm]);
+
+  const exceedsQuota =
+    remainingQuota !== null && estimate.units > remainingQuota;
 
   async function onSearch(e: React.FormEvent) {
     e.preventDefault();
-    const terms = termsRaw
-      .split(/[\n,]/)
-      .map((t) => t.trim())
-      .filter(Boolean);
+    const terms = parseList(termsRaw);
     if (terms.length === 0) {
       toast.error("Informe pelo menos um termo.");
       return;
     }
-    const langs = languages
-      .split(",")
-      .map((l) => l.trim())
-      .filter(Boolean);
+    const langs = parseList(languages);
 
+    // Pré-checagem de custo: se o estimado ultrapassa a cota restante hoje,
+    // confirma antes de gastar (a busca ainda pode trazer resultado parcial).
+    if (exceedsQuota) {
+      const ok = await confirm({
+        title: "Custo acima da cota restante",
+        message: `Esta busca deve custar ~${estimate.units.toLocaleString(
+          "pt-BR",
+        )} unidades (${estimate.searchCalls} chamadas), mas só restam ${remainingQuota?.toLocaleString(
+          "pt-BR",
+        )} hoje. A busca pode parar no meio e trazer resultado parcial. Continuar mesmo assim?`,
+        confirmLabel: "Buscar mesmo assim",
+        cancelLabel: "Cancelar",
+        danger: true,
+      });
+      if (!ok) return;
+    }
+
+    // Sanitiza os números antes de enviar — campo vazio/negativo não pode
+    // virar filtro incoerente (ex.: pages_per_term=0 ou min_views negativo).
     const req: DiscoverySearchRequest = {
       terms,
-      window_days: windowDays,
-      min_views: minViews,
-      min_vpd: minVpd,
-      min_duration_seconds: minDuration,
+      window_days: clampInt(windowDays, 1, defaults.window_days),
+      min_views: clampInt(minViews, 0, defaults.min_views),
+      min_vpd: clampInt(minVpd, 0, defaults.min_vpd),
+      min_duration_seconds: clampInt(minDuration, 0, defaults.min_duration_seconds),
       languages: langs,
-      pages_per_term: pagesPerTerm,
-      min_channel_age_days: minChannelAge,
-      max_channel_age_days: maxChannelAge,
+      pages_per_term: clampInt(pagesPerTerm, 1, defaults.pages_per_term),
+      min_channel_age_days: clampInt(minChannelAge, 0, defaults.min_channel_age_days),
+      max_channel_age_days: clampInt(maxChannelAge, 0, defaults.max_channel_age_days),
     };
 
     setLoading(true);
@@ -274,6 +338,31 @@ export function DescobertaForm({ defaults }: Props) {
             </span>
           )}
         </div>
+
+        {/* Custo estimado de cota (item 16) */}
+        {estimate.searchCalls > 0 && (
+          <div
+            style={{
+              marginTop: 10,
+              fontSize: 12,
+              color: exceedsQuota ? "var(--warn)" : "var(--text-dim)",
+            }}
+          >
+            Custo estimado:{" "}
+            <strong>~{estimate.units.toLocaleString("pt-BR")} unidades</strong>{" "}
+            ({estimate.searchCalls} chamadas de busca)
+            {remainingQuota !== null && (
+              <> · {remainingQuota.toLocaleString("pt-BR")} restantes hoje</>
+            )}
+            {exceedsQuota && (
+              <>
+                {" "}
+                — ⚠️ acima da cota restante; a busca pode trazer só resultado
+                parcial.
+              </>
+            )}
+          </div>
+        )}
       </form>
 
       {run && (

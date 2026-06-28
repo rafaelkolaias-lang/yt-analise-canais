@@ -46,6 +46,12 @@ from app.core.database import Base
 # =============================================================================
 class Channel(Base):
     __tablename__ = "channels"
+    __table_args__ = (
+        # Filtros quentes: analytics/monitoramento filtram por status e o sync
+        # varre por is_active. Sem índice viravam table scan.
+        Index("ix_channels_status", "status"),
+        Index("ix_channels_is_active", "is_active"),
+    )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     youtube_channel_id: Mapped[str] = mapped_column(String(32), nullable=False, unique=True, index=True)
@@ -114,6 +120,8 @@ class TrackedVideo(Base):
     __tablename__ = "tracked_videos"
     __table_args__ = (
         UniqueConstraint("channel_id", "youtube_video_id", name="uq_tracked_video"),
+        # Analytics conta vídeos por status="active"; sync filtra por status.
+        Index("ix_tracked_videos_status", "status"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)

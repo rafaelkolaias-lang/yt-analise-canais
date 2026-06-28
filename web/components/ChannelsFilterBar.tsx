@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import type { MonitoredChannel } from "@/lib/api";
 
@@ -33,7 +33,7 @@ export type ChannelFilters = {
 
 export const DEFAULT_CHANNEL_FILTERS: ChannelFilters = {
   search: "",
-  status: "all",
+  status: "active",
   source: "",
   minSubs: "",
   maxSubs: "",
@@ -41,7 +41,7 @@ export const DEFAULT_CHANNEL_FILTERS: ChannelFilters = {
   maxVpd: "",
   addedFrom: "",
   addedTo: "",
-  sort: "subs_desc",
+  sort: "vpd_desc",
 };
 
 const SORT_LABELS: Record<ChannelSortKey, string> = {
@@ -83,6 +83,29 @@ export function ChannelsFilterBar({
   const set = (patch: Partial<ChannelFilters>) =>
     onChange({ ...filters, ...patch });
 
+  // Busca com debounce: o input atualiza um estado local na hora, mas só
+  // propaga pro filtro (que re-renderiza a lista inteira) após 250ms parado.
+  const [searchInput, setSearchInput] = useState(filters.search);
+  // Refs com os valores MAIS RECENTES de filters/onChange. O timeout do
+  // debounce lê daqui ao disparar, em vez de capturar uma closure antiga —
+  // assim ele aplica a busca sobre os filtros atuais e não reverte uma
+  // mudança feita em outro campo (status, ordem, etc.) durante a espera.
+  const filtersRef = useRef(filters);
+  filtersRef.current = filters;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  // Sincroniza quando o filtro muda por fora (ex: botão "Limpar").
+  useEffect(() => {
+    setSearchInput(filters.search);
+  }, [filters.search]);
+  useEffect(() => {
+    if (searchInput === filtersRef.current.search) return;
+    const t = setTimeout(() => {
+      onChangeRef.current({ ...filtersRef.current, search: searchInput });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const isFiltered = filteredCount !== totalCount;
 
   return (
@@ -91,8 +114,8 @@ export function ChannelsFilterBar({
         type="text"
         className="input filter-bar-search"
         placeholder="Buscar por nome..."
-        value={filters.search}
-        onChange={(e) => set({ search: e.target.value })}
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
       />
 
       <select

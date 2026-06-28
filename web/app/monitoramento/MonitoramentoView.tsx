@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AddByLinkInput } from "@/components/AddByLinkInput";
 import { ChannelAvatar } from "@/components/ChannelAvatar";
+import { useConfirm } from "@/components/ConfirmDialog";
 import {
   ChannelsFilterBar,
   DEFAULT_CHANNEL_FILTERS,
@@ -120,6 +121,7 @@ export function MonitoramentoView({
   const [bulkProgress, setBulkProgress] = useState<BulkProgress | null>(null);
   const isMobile = useIsMobile();
   const toast = useToast();
+  const confirm = useConfirm();
 
   const filteredChannels = useMemo(
     () => applyChannelFilters(channels, channelFilters),
@@ -228,7 +230,15 @@ export function MonitoramentoView({
   }
 
   async function onDeleteChannel(c: MonitoredChannel) {
-    if (!confirm(`Remover canal "${c.title}" e todo o histórico de snapshots?`)) return;
+    if (
+      !(await confirm({
+        title: "Remover canal",
+        message: `Remover o canal "${c.title}" e todo o histórico de snapshots?`,
+        confirmLabel: "Remover",
+        danger: true,
+      }))
+    )
+      return;
     const k = `ch-del:${c.id}`;
     markRow(k, "loading");
     try {
@@ -289,7 +299,15 @@ export function MonitoramentoView({
   }
 
   async function onDeleteVideo(v: MonitoredVideo) {
-    if (!confirm(`Remover o vídeo "${v.title.slice(0, 60)}" do monitoramento?`)) return;
+    if (
+      !(await confirm({
+        title: "Remover vídeo",
+        message: `Remover o vídeo "${v.title.slice(0, 60)}" do monitoramento?`,
+        confirmLabel: "Remover",
+        danger: true,
+      }))
+    )
+      return;
     const k = `vd-del:${v.id}`;
     markRow(k, "loading");
     try {
@@ -503,12 +521,21 @@ export function MonitoramentoView({
       label: "Atualizar canais",
       ids,
       snapshotPath: (id) => `/api/monitoring/channels/${id}/snapshot`,
-      onSuccess: (id) =>
+      onSuccess: (id) => {
         setSelectedChannelIds((prev) => {
           const next = new Set(prev);
           next.delete(id);
           return next;
-        }),
+        });
+        // Invalida o cache de "melhores vídeos" do canal: o snapshot pode ter
+        // mudado o ranking; sem isso a aba Best mostraria dados antigos.
+        setBestByChannel((prev) => {
+          if (prev[id] === undefined) return prev;
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+      },
       onRefresh: refreshChannels,
     });
   }
@@ -525,13 +552,16 @@ export function MonitoramentoView({
     );
   }
 
-  function onBulkDeleteChannels() {
+  async function onBulkDeleteChannels() {
     const ids = Array.from(selectedChannelIds);
     if (ids.length === 0) return;
     if (
-      !confirm(
-        `Remover ${ids.length} canal(is) e todo o histórico de snapshots? Esta ação não pode ser desfeita.`
-      )
+      !(await confirm({
+        title: "Remover canais",
+        message: `Remover ${ids.length} canal(is) e todo o histórico de snapshots? Esta ação não pode ser desfeita.`,
+        confirmLabel: "Remover",
+        danger: true,
+      }))
     ) {
       return;
     }
@@ -602,10 +632,18 @@ export function MonitoramentoView({
     );
   }
 
-  function onBulkDeleteVideos() {
+  async function onBulkDeleteVideos() {
     const ids = Array.from(selectedVideoIds);
     if (ids.length === 0) return;
-    if (!confirm(`Remover ${ids.length} vídeo(s) do monitoramento?`)) return;
+    if (
+      !(await confirm({
+        title: "Remover vídeos",
+        message: `Remover ${ids.length} vídeo(s) do monitoramento?`,
+        confirmLabel: "Remover",
+        danger: true,
+      }))
+    )
+      return;
     runBulkVideos(
       "Remover vídeos",
       "POST",
@@ -635,9 +673,10 @@ export function MonitoramentoView({
 
   async function onOpenSuggestionsTab() {
     setTab("suggestions");
-    if (monitorSuggestions === null && deadSuggestions === null) {
-      await loadSuggestions();
-    }
+    // Sempre recarrega ao abrir a aba: o sync pode ter gerado/removido
+    // sugestões desde a última visita, então o número e a lista ficam frescos
+    // (antes só carregava na primeira vez e o badge podia ficar desatualizado).
+    await loadSuggestions();
   }
 
   // Carrega sugestoes se a aba foi ativada por deep-link (sem passar pelo
@@ -683,9 +722,12 @@ export function MonitoramentoView({
 
   async function onRemoveDeadChannel(s: DeadChannelSuggestion) {
     if (
-      !confirm(
-        `Remover "${s.title}" e todo o histórico de snapshots? O canal entrará na blacklist.`
-      )
+      !(await confirm({
+        title: "Remover canal",
+        message: `Remover "${s.title}" e todo o histórico de snapshots? O canal entrará na blacklist.`,
+        confirmLabel: "Remover",
+        danger: true,
+      }))
     ) {
       return;
     }

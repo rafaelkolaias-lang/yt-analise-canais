@@ -69,6 +69,24 @@ def _upsert_blacklist(db: Session, youtube_channel_id: str, reason: str) -> None
         existing.reason = reason
 
 
+def _remove_from_blacklist(db: Session, youtube_channel_id: str) -> bool:
+    """
+    Remove o canal da blacklist se estiver lá. Usado quando o usuário decide
+    EXPLICITAMENTE re-monitorar um canal que havia removido — senão ele ficaria
+    "monitorado E na blacklist" ao mesmo tempo (a descoberta automática
+    continuaria tratando como banido). Retorna True se removeu algo.
+    """
+    row = (
+        db.query(ChannelBlacklist)
+        .filter_by(youtube_channel_id=youtube_channel_id)
+        .one_or_none()
+    )
+    if row is None:
+        return False
+    db.delete(row)
+    return True
+
+
 def _mark_channel_unavailable(db: Session, channel: Channel, reason: str) -> str:
     message = (
         f"Canal indisponivel/removido no YouTube. "
@@ -106,6 +124,10 @@ def _get_or_create_channel_from_youtube(
 ) -> Channel:
     existing = db.query(Channel).filter_by(youtube_channel_id=yt_channel_id).one_or_none()
     if existing:
+        # Re-monitorar explicitamente um canal que estava na blacklist deve
+        # tirá-lo de lá (estado coerente).
+        if _remove_from_blacklist(db, yt_channel_id):
+            db.commit()
         return existing
 
     yt_client = client or youtube_client.build_from_db(db)
@@ -128,6 +150,8 @@ def _get_or_create_channel_from_youtube(
         is_active=True,
     )
     db.add(channel)
+    # Saindo da blacklist no mesmo commit (caso o canal tenha sido removido antes).
+    _remove_from_blacklist(db, yt_channel_id)
     db.commit()
     db.refresh(channel)
     return channel
@@ -307,6 +331,11 @@ def _accumulate_best_video(
     cria um TrackedVideo com tracking_source='best_from_channel'. Acumulativo:
     não remove antigos. Retorna o TrackedVideo criado, ou None se já existia ou
     não havia candidato.
+
+    NÃO comita: apenas faz `db.add`. O commit é responsabilidade do
+    `snapshot_channel`, que grava best-video + thumbnail + snapshot do canal
+    numa ÚNICA transação (atomicidade — evita best-video/thumbnail salvos sem
+    o snapshot da rodada quando a coleta falha no meio).
     """
     if not best_video_item:
         return None
@@ -334,8 +363,6 @@ def _accumulate_best_video(
         first_tracked_at=datetime.utcnow(),
     )
     db.add(tv)
-    db.commit()
-    db.refresh(tv)
     return tv
 
 
@@ -418,7 +445,10 @@ def _last_video_snapshot(db: Session, tracked_video_id: int) -> Optional[VideoSn
 
 
 def snapshot_channel(
-    db: Session, channel_id: int, sample_size: Optional[int] = None
+    db: Session,
+    channel_id: int,
+    sample_size: Optional[int] = None,
+    client: Optional[youtube_client.YouTubeClient] = None,
 ) -> ChannelSnapshot:
     """
     Puxa estado atual do canal no YouTube + detecta melhor vídeo dos últimos uploads
@@ -442,7 +472,9 @@ def snapshot_channel(
     if sample_size is None:
         sample_size = settings_reader.get_int(db, "monitor.best_videos_sample_size", 10)
 
-    client = youtube_client.build_from_db(db)
+    # Reusa o client passado pelo run de sync (1 por run) ou cria um próprio
+    # quando chamado isoladamente (endpoint de snapshot individual).
+    client = client or youtube_client.build_from_db(db)
 
     # 1) estado atual do canal
     ch_items = client.channels_by_ids([channel.youtube_channel_id])
@@ -537,7 +569,11 @@ def snapshot_channel(
     return snap
 
 
-def snapshot_video(db: Session, tracked_video_id: int) -> VideoSnapshot:
+def snapshot_video(
+    db: Session,
+    tracked_video_id: int,
+    client: Optional[youtube_client.YouTubeClient] = None,
+) -> VideoSnapshot:
     """
     Puxa estado atual do vídeo no YouTube e grava VideoSnapshot com deltas.
     Também atualiza TrackedVideo.last_seen_* para leitura rápida.
@@ -546,7 +582,7 @@ def snapshot_video(db: Session, tracked_video_id: int) -> VideoSnapshot:
     if tv is None:
         raise LookupError(f"vídeo id={tracked_video_id} não existe")
 
-    client = youtube_client.build_from_db(db)
+    client = client or youtube_client.build_from_db(db)
     items = client.videos_by_ids([tv.youtube_video_id])
     if not items:
         raise VideoUnavailableError(

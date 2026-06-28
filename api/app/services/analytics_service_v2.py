@@ -31,6 +31,52 @@ SIGNAL_PRIORITY: dict[str, int] = {
     "unknown": 4,
 }
 
+# Base do "Score de Oportunidade" por sinal do ultimo snapshot. Quanto maior,
+# mais o canal vale a pena estudar pra replica. `unknown`/None fica num meio
+# termo (nao penaliza tanto quanto saturado, mas nao premia como aquecendo).
+_SCORE_SIGNAL_BASE: dict[str, int] = {
+    "heating": 45,
+    "promising": 38,
+    "stable": 22,
+    "saturated": 8,
+}
+
+
+def opportunity_score(snap: Optional[ChannelSnapshot]) -> int:
+    """
+    Score 0–100 de "oportunidade de réplica", derivado SOMENTE do último
+    snapshot do canal (barato e em lote — sem queries extras).
+
+    Combina:
+      - sinal (base): aquecendo > promissor > estável > saturado;
+      - momento do VPD (`delta_avg_vpd` relativo ao VPD atual);
+      - crescimento de inscritos no último ciclo (`delta_subscribers`);
+      - tendência de VPD (`vpd_trend`).
+
+    Mantido propositalmente simples e explicável. Não substitui o
+    `channel_summary` (que tem janelas 7/30/90d), serve pra ranquear a lista
+    inteira sem custo de N queries por canal.
+    """
+    if snap is None:
+        return 0
+    score = float(_SCORE_SIGNAL_BASE.get(snap.signal or "", 15))
+
+    avg_vpd = snap.avg_vpd_recent or 0.0
+    if snap.delta_avg_vpd and snap.delta_avg_vpd > 0:
+        if avg_vpd > 0:
+            pct = (snap.delta_avg_vpd / avg_vpd) * 100.0
+            score += min(25.0, max(0.0, pct / 4.0))
+        else:
+            score += 5.0
+
+    if snap.delta_subscribers and snap.delta_subscribers > 0:
+        score += 8.0
+
+    if snap.vpd_trend and snap.vpd_trend > 0:
+        score += 7.0
+
+    return max(0, min(100, round(score)))
+
 
 def _channel_query(db: Session, status: Optional[str]):
     query = db.query(Channel)
@@ -347,12 +393,157 @@ def niches(db: Session) -> list[dict]:
     return out
 
 
+def video_timeseries(db: Session, tracked_video_id: int) -> dict[str, list[dict]]:
+    snaps = (
+        db.query(VideoSnapshot)
+        .filter(VideoSnapshot.tracked_video_id == tracked_video_id)
+        .order_by(VideoSnapshot.captured_at.asc())
+        .all()
+    )
+    return {
+        "vpd_series": [
+            {"captured_at": s.captured_at.isoformat() if s.captured_at else None, "value": s.vpd}
+            for s in snaps
+        ],
+        "views_series": [
+            {
+                "captured_at": s.captured_at.isoformat() if s.captured_at else None,
+                "value": float(s.views) if s.views is not None else None,
+            }
+            for s in snaps
+        ],
+    }
+
+
+def videos_by_channel(
+    db: Session,
+    page: int,
+    page_size: int,
+    channel_status: Optional[str] = None,
+) -> dict:
+    """
+    Lista canais paginada (pelo canal) com seus vídeos monitorados e séries
+    temporais. Evita N+1: busca canais, depois vídeos e snapshots em lote.
+    """
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 1
+    if page_size > 20:
+        page_size = 20
+
+    base = _channel_query(db, channel_status)
+    if base is None:
+        return {"page": page, "page_size": page_size, "total": 0, "total_pages": 0, "items": []}
+
+    total: int = base.count()
+    total_pages = (total + page_size - 1) // page_size if total else 0
+    offset = (page - 1) * page_size
+    channels = (
+        base.order_by(desc(Channel.created_at))
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
+
+    if not channels:
+        return {"page": page, "page_size": page_size, "total": total, "total_pages": total_pages, "items": []}
+
+    channel_ids = [c.id for c in channels]
+
+    videos = (
+        db.query(TrackedVideo)
+        .filter(TrackedVideo.channel_id.in_(channel_ids))
+        .order_by(TrackedVideo.channel_id, desc(TrackedVideo.last_seen_vpd))
+        .all()
+    )
+
+    video_ids = [v.id for v in videos]
+    if video_ids:
+        snapshots = (
+            db.query(VideoSnapshot)
+            .filter(VideoSnapshot.tracked_video_id.in_(video_ids))
+            .order_by(VideoSnapshot.tracked_video_id, VideoSnapshot.captured_at.asc())
+            .all()
+        )
+    else:
+        snapshots = []
+
+    snaps_by_video: dict[int, list[VideoSnapshot]] = {}
+    for snap in snapshots:
+        snaps_by_video.setdefault(snap.tracked_video_id, []).append(snap)
+
+    videos_by_channel_id: dict[int, list[TrackedVideo]] = {}
+    for video in videos:
+        videos_by_channel_id.setdefault(video.channel_id, []).append(video)
+
+    items: list[dict] = []
+    for channel in channels:
+        ch_videos = videos_by_channel_id.get(channel.id, [])
+        video_items = []
+        for v in ch_videos:
+            v_snaps = snaps_by_video.get(v.id, [])
+            video_items.append(
+                {
+                    "id": v.id,
+                    "youtube_video_id": v.youtube_video_id,
+                    "title": v.title,
+                    "url": v.url,
+                    "thumbnail_url": v.thumbnail_url,
+                    "status": v.status,
+                    "first_tracked_at": v.first_tracked_at.isoformat() if v.first_tracked_at else None,
+                    "first_tracked_vpd": v.first_tracked_vpd,
+                    "last_seen_vpd": v.last_seen_vpd,
+                    "last_seen_views": v.last_seen_views,
+                    "last_seen_at": v.last_seen_at.isoformat() if v.last_seen_at else None,
+                    "unavailable_reason": v.unavailable_reason,
+                    "unavailable_since": v.unavailable_since.isoformat() if v.unavailable_since else None,
+                    "vpd_series": [
+                        {"captured_at": s.captured_at.isoformat() if s.captured_at else None, "value": s.vpd}
+                        for s in v_snaps
+                    ],
+                    "views_series": [
+                        {
+                            "captured_at": s.captured_at.isoformat() if s.captured_at else None,
+                            "value": float(s.views) if s.views is not None else None,
+                        }
+                        for s in v_snaps
+                    ],
+                }
+            )
+        items.append(
+            {
+                "channel": {
+                    "id": channel.id,
+                    "youtube_channel_id": channel.youtube_channel_id,
+                    "title": channel.title,
+                    "url": channel.url,
+                    "thumbnail_url": channel.thumbnail_url,
+                    "status": channel.status,
+                },
+                "videos": video_items,
+            }
+        )
+
+    return {
+        "page": page,
+        "page_size": page_size,
+        "total": int(total),
+        "total_pages": int(total_pages),
+        "items": items,
+    }
+
+
+ALLOWED_SORTS = ("signal", "score")
+
+
 def channels_paginated(
     db: Session,
     page: int,
     page_size: int,
     status: Optional[str] = None,
     signal: Optional[str] = None,
+    sort: Optional[str] = None,
 ) -> dict:
     """
     Lista canais paginada com filtros opcionais de `status` (situacao do
@@ -377,6 +568,8 @@ def channels_paginated(
 
     if signal and signal not in ALLOWED_SIGNAL_FILTERS:
         signal = "all"
+    if sort not in ALLOWED_SORTS:
+        sort = "signal"
 
     base = _channel_query(db, status)
     if base is None:
@@ -400,8 +593,15 @@ def channels_paginated(
     if signal and signal != "all":
         channels = [c for c in channels if _signal_of(c) == signal]
 
-    # Ordenacao por prioridade de sinal -> avg_vpd -> created_at desc.
-    def _sort_key(ch: Channel) -> tuple:
+    # Score de oportunidade por canal (derivado do ultimo snapshot, em lote).
+    score_by_channel: dict[int, int] = {
+        c.id: opportunity_score(latest_by_channel.get(c.id)) for c in channels
+    }
+
+    # Ordenacao. Default ("signal"): prioridade de sinal -> avg_vpd ->
+    # created_at desc. "score": maior score de oportunidade primeiro, com
+    # avg_vpd e created_at como desempate.
+    def _signal_sort_key(ch: Channel) -> tuple:
         snap = latest_by_channel.get(ch.id)
         sig = _signal_of(ch)
         priority = SIGNAL_PRIORITY.get(sig, SIGNAL_PRIORITY["unknown"])
@@ -412,7 +612,14 @@ def channels_paginated(
         created = ch.created_at.timestamp() if ch.created_at else 0.0
         return (priority, -float(vpd), -created)
 
-    channels.sort(key=_sort_key)
+    def _score_sort_key(ch: Channel) -> tuple:
+        snap = latest_by_channel.get(ch.id)
+        score = score_by_channel.get(ch.id, 0)
+        vpd = snap.avg_vpd_recent if snap and snap.avg_vpd_recent is not None else -1.0
+        created = ch.created_at.timestamp() if ch.created_at else 0.0
+        return (-score, -float(vpd), -created)
+
+    channels.sort(key=_score_sort_key if sort == "score" else _signal_sort_key)
 
     total = len(channels)
     total_pages = (total + page_size - 1) // page_size if total else 0
@@ -431,6 +638,7 @@ def channels_paginated(
                     "url": channel.url,
                     "thumbnail_url": channel.thumbnail_url,
                 },
+                "opportunity_score": score_by_channel.get(channel.id, 0),
                 "summary": summary,
                 "subscribers_series": timeseries(db, channel.id, "subscribers"),
                 "views_series": timeseries(db, channel.id, "views_total"),

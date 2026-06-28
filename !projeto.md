@@ -69,6 +69,28 @@ Pontos importantes recentes:
 - Termo exibido "Canal Viral" mapeia para chaves técnicas `breakout_*` (preservadas por compatibilidade — não renomear sem migration de dados).
 - Pool SQLAlchemy ajustado para `pool_size=10 + max_overflow=20` (teto 30 conexões) em `api/app/core/database.py`. O default 5+10 esgotava quando a UI disparava muitas requests em paralelo (ex: aba "Best" carregando N canais simultaneamente). Não reduzir sem antes mover essa carga para endpoints batch.
 
+## Atualizações recentes (2026-06-27)
+
+Frontend:
+- **Analytics**: "Score de Oportunidade" (0–100) por canal com badge colorido + botão "Ordenar por: Sinal / Oportunidade" (novo param `sort=signal|score` em `GET /api/analytics/channels`). Cards ganham borda esquerda colorida por sinal (segmentação visual).
+- **ChannelChart** (`web/components/ChannelChart.tsx`): teto de 100 pontos por gráfico (reamostragem preservando formato e último ponto) + rodapé "média do período".
+- **ConfirmDialog** (`web/components/ConfirmDialog.tsx` + `ConfirmProvider` no `layout.tsx`): modal próprio substitui todos os `confirm()` nativos. Uso via `useConfirm()`.
+- **Filtros**: busca com debounce (250ms) em `ChannelsFilterBar`/`VideosFilterBar`. Defaults do Monitoramento agora **status=active, ordem=VPD** (canais e vídeos).
+- **Descoberta**: estimativa de custo de cota ao vivo + confirmação quando passa da cota restante; números sanitizados (`clampInt`).
+- **SettingInput**: bloqueia salvar número vazio/inválido.
+
+Backend:
+- **Sync** (`sync_service.py`): guard anti-concorrência (`SyncAlreadyRunning` → 409 em `/api/sync/run`; agendado pula); reusa 1 `YouTubeClient` por run + `flush()` no fim; `db.rollback()` por item com erro; **ordem ALEATÓRIA** dos canais/vídeos (cobertura justa quando a cota acaba); contadores separam removidos de sincronizados; stale-guard de run travado = 6h.
+- **Monitoring** (`monitoring_service.py`): `list_channels`/`list_videos` sem N+1 (snapshots em lote / joinedload); `snapshot_channel`/`snapshot_video` aceitam `client`; `_accumulate_best_video` não comita (snapshot atômico); re-adicionar canal remove da blacklist.
+- **Analytics** (`analytics_service_v2.py`): `opportunity_score()` + param `sort`.
+- **Settings** (`settings_service.py`): valida valor vs `value_type` (PUT inválido → 400); esconde/bloqueia chaves internas (`INTERNAL_KEYS`: `youtube.quota_usage_today`, `notifications.last_suggestions_count`).
+- **Health**: respostas não vazam `str(exc)` (mensagem genérica + log).
+- **CORS** (`main.py`): credenciais desligadas quando origem `*`; aviso de `APP_SECRET_KEY` fraca no boot.
+- **Cota** (`youtube_client.py`): rollover persiste deltas pendentes antes de zerar; método público `flush()`.
+- **Migration `b2e7f1a4c9d2`**: índices em `channels(status)`, `channels(is_active)`, `tracked_videos(status)` — **rodar `alembic upgrade head` após o deploy do -api**.
+
+> Pendência conhecida: aba Monitoramento → Sugestões "para monitorar" tem N+1 (`_best_discovery_video_for_channel` por canal) — funciona mas é lento; otimizar em lote.
+
 ## Stack
 
 | Camada | Tecnologia |
@@ -289,6 +311,7 @@ Regras atuais de sugestões:
 |---|---|
 | Lógica ativa de analytics | `api/app/services/analytics_service_v2.py`, `api/app/routers/analytics.py`, `api/app/schemas/analytics.py` |
 | UI do Analytics | `web/app/analytics/AnalyticsView.tsx`, `web/components/ChannelChart.tsx`, `web/lib/api.ts` |
+| Analytics de vídeos por canal | `analytics_service_v2.videos_by_channel`, `GET /api/analytics/videos-by-channel`, `web/components/VideosByChannelView.tsx` |
 
 O Analytics ativo já contempla:
 - filtro por status de canal (`active`, `paused`, `removed`, `all`);
@@ -299,6 +322,7 @@ O Analytics ativo já contempla:
 - consistência de crescimento;
 - Canal Viral (campos `breakout_candidate`, `breakout_reason` mantidos por compat; UI exibe "Canal Viral");
 - `niches()` coerente com canais que realmente têm snapshot.
+- **Vídeos por canal** (`GET /api/analytics/videos-by-channel`): lista canais paginada (máx 20/página) com todos os vídeos monitorados e séries temporais de VPD e views. Busca canais → vídeos → snapshots em 3 queries (sem N+1). UI: aba "Vídeos por canal" em `AnalyticsView`, grupos colapsáveis por canal, mini-charts expansíveis por vídeo (`VideosByChannelView.tsx`).
 
 ### Notificações internas
 

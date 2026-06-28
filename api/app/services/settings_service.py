@@ -9,6 +9,7 @@ Regras:
 """
 from __future__ import annotations
 
+import json
 from typing import Optional
 
 from sqlalchemy.orm import Session
@@ -17,6 +18,50 @@ from app.core.crypto import encrypt, mask
 from app.models import AppSetting
 from app.schemas.settings import AppSettingRead
 from app.services.settings_help import get_help
+
+# Chaves de uso INTERNO do sistema (estado, não configuração do usuário). Não
+# devem aparecer nem ser editáveis pela API pública de settings — o backend as
+# escreve direto. Editá-las à mão corromperia cota/contadores.
+INTERNAL_KEYS = frozenset(
+    {
+        "youtube.quota_usage_today",
+        "notifications.last_suggestions_count",
+    }
+)
+
+# Tokens aceitos para value_type="bool".
+_BOOL_TOKENS = {"1", "0", "true", "false", "yes", "no", "on", "off"}
+
+
+def _validate_value(value_type: str, raw_value: str) -> None:
+    """
+    Valida que `raw_value` (não vazio) é coerente com `value_type`. Levanta
+    ValueError com mensagem amigável quando não for — assim o usuário recebe
+    um 400 claro em vez de salvar uma config que será silenciosamente ignorada
+    na leitura (que cai no default).
+    """
+    if value_type == "int":
+        try:
+            int(raw_value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Valor inválido para tipo inteiro: {raw_value!r}")
+    elif value_type == "float":
+        try:
+            float(raw_value)
+        except (TypeError, ValueError):
+            raise ValueError(f"Valor inválido para tipo número: {raw_value!r}")
+    elif value_type == "bool":
+        if raw_value.strip().lower() not in _BOOL_TOKENS:
+            raise ValueError(
+                f"Valor inválido para tipo booleano: {raw_value!r} "
+                "(use true/false)."
+            )
+    elif value_type == "json":
+        try:
+            json.loads(raw_value)
+        except (TypeError, ValueError):
+            raise ValueError("Valor inválido: JSON malformado.")
+    # str/secret/csv: sem validação específica.
 
 
 def _to_read(setting: AppSetting) -> AppSettingRead:
@@ -42,10 +87,13 @@ def _to_read(setting: AppSetting) -> AppSettingRead:
 
 def list_settings(db: Session) -> list[AppSettingRead]:
     rows = db.query(AppSetting).order_by(AppSetting.key).all()
-    return [_to_read(r) for r in rows]
+    # Esconde chaves internas (estado do sistema) da API pública.
+    return [_to_read(r) for r in rows if r.key not in INTERNAL_KEYS]
 
 
 def get_setting(db: Session, key: str) -> Optional[AppSettingRead]:
+    if key in INTERNAL_KEYS:
+        return None  # router devolve 404 — chave interna não é exposta
     row = db.query(AppSetting).filter_by(key=key).one_or_none()
     return _to_read(row) if row else None
 
@@ -57,6 +105,9 @@ def update_setting(db: Session, key: str, raw_value: Optional[str]) -> Optional[
     - normais: salva como texto.
     Retorna None se a key não existir (router devolve 404).
     """
+    if key in INTERNAL_KEYS:
+        return None  # router devolve 404 — chave interna não é editável
+
     row = db.query(AppSetting).filter_by(key=key).one_or_none()
     if row is None:
         return None
@@ -64,6 +115,12 @@ def update_setting(db: Session, key: str, raw_value: Optional[str]) -> Optional[
     value_to_store: Optional[str]
 
     is_empty = raw_value is None or raw_value == ""
+
+    # Valida o valor contra o tipo ANTES de gravar (exceto quando limpando).
+    # Sem isso, um valor inválido era salvo e depois ignorado em silêncio na
+    # leitura (caía no default), enganando o usuário.
+    if not is_empty and not row.is_secret:
+        _validate_value(row.value_type, raw_value)  # raise ValueError → 400
 
     if row.is_secret:
         value_to_store = None if is_empty else encrypt(raw_value)

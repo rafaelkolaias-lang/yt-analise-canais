@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { useConfirm } from "@/components/ConfirmDialog";
+
 type Props = {
   hasValue: boolean;
   masked: string | null;
@@ -29,6 +31,7 @@ export function SecretInput({
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
+  const confirm = useConfirm();
 
   if (!editing) {
     return (
@@ -53,7 +56,16 @@ export function SecretInput({
             className="btn-ghost danger"
             disabled={disabled || busy}
             onClick={async () => {
-              if (!confirm("Remover esta chave? Os serviços que dependem dela vão parar de funcionar.")) return;
+              if (
+                !(await confirm({
+                  title: "Remover",
+                  message:
+                    "Remover esta chave? Os serviços que dependem dela vão parar de funcionar.",
+                  confirmLabel: "Remover",
+                  danger: true,
+                }))
+              )
+                return;
               setBusy(true);
               try {
                 await onClear();

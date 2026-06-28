@@ -6,6 +6,7 @@ import { ChannelAvatar } from "@/components/ChannelAvatar";
 import { ChannelChart, type ChartBucket } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
+import { VideosByChannelView } from "@/components/VideosByChannelView";
 import {
   apiGet,
   type AnalyticsOverview,
@@ -13,6 +14,8 @@ import {
   type NicheRow,
   type PaginatedChannelAnalytics,
 } from "@/lib/api";
+
+type AnalyticsTab = "channels" | "videos";
 
 type Props = {
   niches: NicheRow[];
@@ -56,6 +59,20 @@ const BUCKET_OPTIONS: { value: ChartBucket; label: string }[] = [
   { value: "30d", label: "30 dias" },
 ];
 
+type SortBy = "signal" | "score";
+
+const SORT_OPTIONS: { value: SortBy; label: string }[] = [
+  { value: "signal", label: "Sinal" },
+  { value: "score", label: "Oportunidade" },
+];
+
+function scoreColor(score: number): string {
+  if (score >= 70) return "#7ef0df"; // alto — verde-água
+  if (score >= 45) return "#b9d0ff"; // médio — azul
+  if (score >= 25) return "#ffd591"; // baixo — âmbar
+  return "var(--text-dim)"; // muito baixo
+}
+
 function signalLabel(signal: string | null): string {
   switch (signal) {
     case "heating":
@@ -96,8 +113,10 @@ function consistencyLabel(label: string | null | undefined): string {
 }
 
 export function AnalyticsView({ niches }: Props) {
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>("channels");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [signalFilter, setSignalFilter] = useState<SignalFilter>("all");
+  const [sortBy, setSortBy] = useState<SortBy>("signal");
   const [chartBucket, setChartBucket] = useState<ChartBucket>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
@@ -118,7 +137,7 @@ export function AnalyticsView({ niches }: Props) {
             `/api/analytics/overview?status=${statusFilter}`
           ),
           apiGet<PaginatedChannelAnalytics>(
-            `/api/analytics/channels?page=${page}&page_size=${pageSize}&status=${statusFilter}&signal=${signalFilter}`
+            `/api/analytics/channels?page=${page}&page_size=${pageSize}&status=${statusFilter}&signal=${signalFilter}&sort=${sortBy}`
           ),
         ]);
         if (!cancelled) {
@@ -135,7 +154,7 @@ export function AnalyticsView({ niches }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [page, pageSize, statusFilter, signalFilter, reloadTick]);
+  }, [page, pageSize, statusFilter, signalFilter, sortBy, reloadTick]);
 
   const totalPages = data?.total_pages ?? 0;
   const total = data?.total ?? 0;
@@ -153,6 +172,38 @@ export function AnalyticsView({ niches }: Props) {
 
   return (
     <>
+      {/* Abas principais */}
+      <section
+        className="card"
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
+        }}
+      >
+        {(
+          [
+            { value: "channels", label: "Canais" },
+            { value: "videos", label: "Vídeos por canal" },
+          ] as { value: AnalyticsTab; label: string }[]
+        ).map((tab) => (
+          <button
+            key={tab.value}
+            type="button"
+            onClick={() => setActiveTab(tab.value)}
+            className={activeTab === tab.value ? "btn-primary" : "btn-ghost"}
+            style={{ fontSize: 13, padding: "6px 16px" }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </section>
+
+      {activeTab === "videos" && <VideosByChannelView />}
+
+      {activeTab === "channels" && (
+        <>
       {/* Barra de filtro de status */}
       <section
         className="card"
@@ -235,6 +286,48 @@ export function AnalyticsView({ niches }: Props) {
           {signalFilter === "all"
             ? "ordenado do melhor para o pior"
             : `apenas ${SIGNAL_OPTIONS.find((o) => o.value === signalFilter)?.label.toLowerCase()}`}
+        </span>
+      </section>
+
+      {/* Barra de ordenacao — por sinal (default) ou por score de oportunidade */}
+      <section
+        className="card"
+        style={{
+          marginBottom: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Ordenar por</div>
+        <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {SORT_OPTIONS.map((opt) => {
+            const active = opt.value === sortBy;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  if (opt.value !== sortBy) {
+                    setPage(1);
+                    setSortBy(opt.value);
+                  }
+                }}
+                className={active ? "btn-primary" : "btn-ghost"}
+                style={{ fontSize: 12, padding: "6px 12px" }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+          {sortBy === "score"
+            ? "maior score de oportunidade primeiro"
+            : "melhor sinal primeiro"}
         </span>
       </section>
 
@@ -372,6 +465,7 @@ export function AnalyticsView({ niches }: Props) {
         items.map(
           ({
             channel,
+            opportunity_score,
             summary,
             subscribers_series,
             views_series,
@@ -379,9 +473,12 @@ export function AnalyticsView({ niches }: Props) {
             uploads_series,
           }) => {
             const signal = summary?.signal ?? null;
-            const signalClass = signal ? `signal-${signal}` : "";
+            const signalClass = signal ? `signal-${signal}` : "signal-unknown";
             return (
-              <section key={channel.id} className="analytics-channel-card">
+              <section
+                key={channel.id}
+                className={`analytics-channel-card ${signalClass}`}
+              >
                 <div className="analytics-channel-header">
                   <div
                     style={{ display: "flex", gap: 12, flex: 1, minWidth: 0 }}
@@ -446,9 +543,26 @@ export function AnalyticsView({ niches }: Props) {
                       )}
                     </div>
                   </div>
-                  <span className={`status-pill ${signalClass}`}>
-                    {signalLabel(signal)}
-                  </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "flex-end",
+                      gap: 6,
+                    }}
+                  >
+                    <span
+                      className="opportunity-badge"
+                      title="Score de oportunidade (0–100): combina sinal, momento do VPD e crescimento de inscritos."
+                      style={{ color: scoreColor(opportunity_score) }}
+                    >
+                      <strong style={{ fontSize: 16 }}>{opportunity_score}</strong>
+                      <span style={{ fontSize: 9 }}>OPORTUNIDADE</span>
+                    </span>
+                    <span className={`status-pill ${signalClass}`}>
+                      {signalLabel(signal)}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="analytics-charts-grid">
@@ -570,6 +684,8 @@ export function AnalyticsView({ niches }: Props) {
             </table>
           </div>
         </section>
+      )}
+        </>
       )}
     </>
   );

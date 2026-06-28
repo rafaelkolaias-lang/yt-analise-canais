@@ -27,7 +27,11 @@ def update_one(
     payload: AppSettingUpdate,
     db: Session = Depends(get_db),
 ) -> AppSettingRead:
-    result = settings_service.update_setting(db, key, payload.value)
+    try:
+        result = settings_service.update_setting(db, key, payload.value)
+    except ValueError as exc:
+        # Valor incoerente com o tipo da setting → 400 com mensagem clara.
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
     if result is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"setting '{key}' not found")
     return result

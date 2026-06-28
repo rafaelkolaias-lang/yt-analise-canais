@@ -1,3 +1,4 @@
+import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
@@ -20,6 +21,8 @@ from app.routers import (
 
 settings = get_settings()
 
+log = logging.getLogger(__name__)
+
 APP_VERSION = "0.1.0"
 
 # `started_at` deve ser FIXO durante a vida do processo. Define-se uma vez no
@@ -31,6 +34,16 @@ APP_STARTED_AT: datetime | None = None
 async def lifespan(_: FastAPI):
     global APP_STARTED_AT
     APP_STARTED_AT = datetime.utcnow()
+    # Aviso de segurança: APP_SECRET_KEY fraca/ausente deixa as API keys
+    # cifradas mais vulneráveis (a derivação é SHA-256). Não trocamos a
+    # derivação aqui pra não inutilizar segredos já cifrados no banco — só
+    # alertamos no log pra o operador gerar uma chave forte.
+    if len(settings.app_secret_key or "") < 32:
+        log.warning(
+            "APP_SECRET_KEY ausente ou curta (<32 chars). As API keys cifradas "
+            "ficam mais vulneraveis. Gere uma forte: "
+            "python -c \"import secrets; print(secrets.token_urlsafe(48))\""
+        )
     scheduler.start()
     try:
         yield
@@ -45,10 +58,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# `allow_credentials=True` combinado com origem "*" é inseguro (e o navegador
+# nem aceita). Se alguém configurar CORS_ORIGINS="*", desligamos credenciais.
+_cors_origins = settings.cors_origins_list
+_allow_credentials = "*" not in _cors_origins
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins_list,
-    allow_credentials=True,
+    allow_origins=_cors_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )

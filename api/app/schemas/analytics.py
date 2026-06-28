@@ -73,6 +73,7 @@ class ChannelBasic(BaseModel):
 
 class ChannelAnalyticsBundle(BaseModel):
     channel: ChannelBasic
+    opportunity_score: int = 0
     summary: ChannelAnalyticsSummary
     subscribers_series: list[TimeseriesPoint]
     views_series: list[TimeseriesPoint]
@@ -86,3 +87,51 @@ class PaginatedChannelAnalytics(BaseModel):
     total: int
     total_pages: int
     items: list[ChannelAnalyticsBundle]
+
+
+# =============================================================================
+# Analytics de vídeos por canal
+# =============================================================================
+class VideoSnapshotPoint(BaseModel):
+    captured_at: Optional[str] = None
+    value: Optional[float] = None
+
+
+class VideoAnalyticsItem(BaseModel):
+    id: int
+    youtube_video_id: str
+    title: str
+    url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    status: str
+    first_tracked_at: Optional[str] = None
+    first_tracked_vpd: Optional[float] = None
+    last_seen_vpd: Optional[float] = None
+    last_seen_views: Optional[int] = None
+    last_seen_at: Optional[str] = None
+    unavailable_reason: Optional[str] = None
+    unavailable_since: Optional[str] = None
+    vpd_series: list[VideoSnapshotPoint]
+    views_series: list[VideoSnapshotPoint]
+
+
+class ChannelBasicWithStatus(BaseModel):
+    id: int
+    youtube_channel_id: str
+    title: str
+    url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    status: str
+
+
+class ChannelVideoBundle(BaseModel):
+    channel: ChannelBasicWithStatus
+    videos: list[VideoAnalyticsItem]
+
+
+class PaginatedVideosByChannel(BaseModel):
+    page: int
+    page_size: int
+    total: int
+    total_pages: int
+    items: list[ChannelVideoBundle]

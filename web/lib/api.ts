@@ -490,6 +490,8 @@ export type ChannelAnalyticsBasic = {
 
 export type ChannelAnalyticsBundle = {
   channel: ChannelAnalyticsBasic;
+  // Score de oportunidade 0–100 (derivado do último snapshot no backend).
+  opportunity_score: number;
   summary: ChannelAnalyticsSummary;
   subscribers_series: TimeseriesPoint[];
   views_series: TimeseriesPoint[];
@@ -503,6 +505,50 @@ export type PaginatedChannelAnalytics = {
   total: number;
   total_pages: number;
   items: ChannelAnalyticsBundle[];
+};
+
+// =============================================================================
+// Analytics — vídeos por canal
+// =============================================================================
+
+export type VideoAnalyticsItem = {
+  id: number;
+  youtube_video_id: string;
+  title: string;
+  url: string | null;
+  thumbnail_url: string | null;
+  status: string;
+  first_tracked_at: string | null;
+  first_tracked_vpd: number | null;
+  last_seen_vpd: number | null;
+  last_seen_views: number | null;
+  last_seen_at: string | null;
+  unavailable_reason: string | null;
+  unavailable_since: string | null;
+  vpd_series: TimeseriesPoint[];
+  views_series: TimeseriesPoint[];
+};
+
+export type ChannelBasicWithStatus = {
+  id: number;
+  youtube_channel_id: string;
+  title: string;
+  url: string | null;
+  thumbnail_url: string | null;
+  status: string;
+};
+
+export type ChannelVideoBundle = {
+  channel: ChannelBasicWithStatus;
+  videos: VideoAnalyticsItem[];
+};
+
+export type PaginatedVideosByChannel = {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  items: ChannelVideoBundle[];
 };
 
 // =============================================================================

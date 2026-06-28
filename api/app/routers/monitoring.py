@@ -1,8 +1,8 @@
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import desc
-from sqlalchemy.orm import Session
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.models import Channel, ChannelSnapshot, TrackedVideo
@@ -66,13 +66,42 @@ router = APIRouter(prefix="/api/monitoring", tags=["monitoring"])
 # ---------------------------------------------------------------------------
 # Canais
 # ---------------------------------------------------------------------------
-def _channel_with_stats(db: Session, c: Channel) -> ChannelWithStats:
-    last = (
-        db.query(ChannelSnapshot)
-        .filter_by(channel_id=c.id)
-        .order_by(desc(ChannelSnapshot.captured_at))
-        .first()
+def _latest_snapshots_by_channel(
+    db: Session, channel_ids: list[int]
+) -> dict[int, ChannelSnapshot]:
+    """
+    Busca o ULTIMO snapshot de cada canal em UMA query (evita N+1).
+
+    Antes, `list_channels` fazia 1 SELECT por canal pra pegar o snapshot mais
+    recente — 50 canais = 50 queries. Aqui um subquery agrupa o `max(captured_at)`
+    por canal e o join traz só as rows correspondentes de uma vez.
+    """
+    if not channel_ids:
+        return {}
+    latest_at = (
+        select(
+            ChannelSnapshot.channel_id.label("channel_id"),
+            func.max(ChannelSnapshot.captured_at).label("max_at"),
+        )
+        .where(ChannelSnapshot.channel_id.in_(channel_ids))
+        .group_by(ChannelSnapshot.channel_id)
+        .subquery()
     )
+    rows = (
+        db.query(ChannelSnapshot)
+        .join(
+            latest_at,
+            (ChannelSnapshot.channel_id == latest_at.c.channel_id)
+            & (ChannelSnapshot.captured_at == latest_at.c.max_at),
+        )
+        .all()
+    )
+    # Em caso raro de captured_at duplicado pro mesmo canal, fica com o ultimo
+    # — irrelevante porque sao do mesmo instante.
+    return {snap.channel_id: snap for snap in rows}
+
+
+def _channel_with_stats(c: Channel, last: ChannelSnapshot | None) -> ChannelWithStats:
     return ChannelWithStats(
         id=c.id,
         youtube_channel_id=c.youtube_channel_id,
@@ -121,7 +150,8 @@ def _video_read(tv: TrackedVideo) -> TrackedVideoRead:
 @router.get("/channels", response_model=list[ChannelWithStats])
 def list_channels(db: Session = Depends(get_db)) -> list[ChannelWithStats]:
     rows = db.query(Channel).order_by(Channel.created_at.desc()).all()
-    return [_channel_with_stats(db, c) for c in rows]
+    latest = _latest_snapshots_by_channel(db, [c.id for c in rows])
+    return [_channel_with_stats(c, latest.get(c.id)) for c in rows]
 
 
 @router.post("/channels", response_model=ChannelRead, status_code=status.HTTP_201_CREATED)
@@ -261,7 +291,14 @@ def channel_best_videos(channel_id: int, db: Session = Depends(get_db)) -> list[
 # ---------------------------------------------------------------------------
 @router.get("/videos", response_model=list[TrackedVideoRead])
 def list_videos(db: Session = Depends(get_db)) -> list[TrackedVideoRead]:
-    rows = db.query(TrackedVideo).order_by(TrackedVideo.first_tracked_at.desc()).all()
+    # joinedload do canal evita N+1: `_video_read` acessa `tv.channel.title`/
+    # `.url` por linha, o que dispararia 1 query por video sem o eager load.
+    rows = (
+        db.query(TrackedVideo)
+        .options(joinedload(TrackedVideo.channel))
+        .order_by(TrackedVideo.first_tracked_at.desc())
+        .all()
+    )
     return [_video_read(row) for row in rows]
 
 

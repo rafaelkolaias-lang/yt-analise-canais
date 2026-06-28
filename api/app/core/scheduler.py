@@ -120,6 +120,9 @@ def _run_job() -> None:
         from app.services import sync_service
 
         run = sync_service.run_sync_in_new_session(sync_type="scheduled")
+        if run is None:
+            log.info("[scheduler] sync agendado pulado (já havia um em andamento)")
+            return
         log.info(
             "[scheduler] sync terminou: id=%s status=%s canais=%s videos=%s",
             run.id, run.status, run.channels_processed, run.videos_processed,

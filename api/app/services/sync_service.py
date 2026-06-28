@@ -19,7 +19,8 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 from typing import Literal
 
 from sqlalchemy.orm import Session
@@ -36,6 +37,41 @@ from app.services import (
 log = logging.getLogger(__name__)
 
 SyncType = Literal["manual", "scheduled"]
+
+# Tempo máximo que um SyncRun pode ficar "running" antes de ser considerado
+# travado (processo morreu no meio). Acima disso, o guard de concorrência
+# encerra o run antigo como failed em vez de bloquear novos syncs pra sempre.
+# Folga grande de propósito: um sync legítimo (mesmo com muitos canais e
+# retries) não passa de minutos; 6h evita encerrar um run vivo por engano e
+# iniciar um segundo concorrente.
+_STALE_RUN_AFTER = timedelta(hours=6)
+
+
+class SyncAlreadyRunning(RuntimeError):
+    """Já existe um sync em andamento — evita rodadas concorrentes (manual + agendado)."""
+
+
+def _active_sync_run(db: Session) -> SyncRun | None:
+    """
+    Retorna o SyncRun em andamento (status="running") se houver um recente.
+    Se o run "running" mais novo já passou de `_STALE_RUN_AFTER`, considera
+    travado, encerra como failed e devolve None (libera novos syncs).
+    """
+    run = (
+        db.query(SyncRun)
+        .filter(SyncRun.status == "running")
+        .order_by(SyncRun.started_at.desc())
+        .first()
+    )
+    if run is None:
+        return None
+    if datetime.utcnow() - run.started_at > _STALE_RUN_AFTER:
+        run.status = "failed"
+        run.notes = ((run.notes or "") + " [auto-encerrado: travado em 'running']")[:2000]
+        run.finished_at = datetime.utcnow()
+        db.commit()
+        return None
+    return run
 
 
 # Chave em app_settings que guarda a ultima contagem de sugestoes vista pelo
@@ -169,7 +205,18 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         finaliza com success/error. Sempre visível.
       - sync scheduled: nunca cria card no início; só cria card final se for
         partial/failed (sucesso passa silencioso).
+
+    Levanta `SyncAlreadyRunning` se já houver um sync em andamento — evita que
+    o manual e o agendado (ou dois cliques) rodem ao mesmo tempo, o que
+    duplicaria snapshots e gastaria cota em dobro.
     """
+    active = _active_sync_run(db)
+    if active is not None:
+        raise SyncAlreadyRunning(
+            f"Já existe um sync em andamento (run #{active.id}, iniciado "
+            f"{active.started_at.isoformat()} UTC)."
+        )
+
     run = SyncRun(type=sync_type, status="running")
     db.add(run)
     db.commit()
@@ -194,10 +241,15 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
     errors: list[str] = []
     channels_processed = 0
     videos_processed = 0
+    channels_unavailable = 0
+    videos_unavailable = 0
 
     try:
-        # Validação antecipada de API key — se falhar, erra já aqui e encerra
-        youtube_client.build_from_db(db)
+        # Validação antecipada de API key — se falhar, erra já aqui e encerra.
+        # Reusa ESTE client em todos os snapshots do run (1 client por run):
+        # evita perder contagem de cota (deltas pendentes sobrevivem entre
+        # chamadas) e reduz overhead de rebuild/decrypt por item.
+        sync_client = youtube_client.build_from_db(db)
 
         active_channels = (
             db.query(Channel).filter(Channel.is_active.is_(True)).all()
@@ -205,6 +257,11 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         active_videos = (
             db.query(TrackedVideo).filter(TrackedVideo.status == "active").all()
         )
+        # Ordem ALEATÓRIA a cada run: se a cota acabar no meio, os canais/vídeos
+        # que ficam sem snapshot variam a cada rodada — assim, ao longo do tempo,
+        # todos acabam sendo cobertos (com ordem fixa, os do fim nunca seriam).
+        random.shuffle(active_channels)
+        random.shuffle(active_videos)
         total_units = len(active_channels) + len(active_videos)
         done_units = 0
 
@@ -213,14 +270,23 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
 
         for ch in active_channels:
             try:
-                monitoring_service.snapshot_channel(db, ch.id)
+                monitoring_service.snapshot_channel(db, ch.id, client=sync_client)
                 channels_processed += 1
             except monitoring_service.PermanentlyUnavailableError as exc:
-                channels_processed += 1
+                # Canal removido do YouTube não conta como "sincronizado":
+                # ele foi marcado como removido, não atualizado.
+                channels_unavailable += 1
                 msg = f"info: canal removido tratado: {exc}"
                 log.info("sync indisponibilidade persistente: %s", msg)
                 errors.append(msg)
             except Exception as exc:
+                # Limpa qualquer estado pendente na sessão (ex.: best-video/
+                # thumbnail adicionados antes do erro) pra não vazar pro próximo
+                # canal nem deixar a sessão em estado de "needs rollback".
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 msg = f"canal id={ch.id} ({ch.title[:40]}): {exc}"
                 log.warning("sync falha: %s", msg)
                 errors.append(msg)
@@ -242,14 +308,18 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
 
         for tv in active_videos:
             try:
-                monitoring_service.snapshot_video(db, tv.id)
+                monitoring_service.snapshot_video(db, tv.id, client=sync_client)
                 videos_processed += 1
             except monitoring_service.PermanentlyUnavailableError as exc:
-                videos_processed += 1
+                videos_unavailable += 1
                 msg = f"info: video removido tratado: {exc}"
                 log.info("sync indisponibilidade persistente: %s", msg)
                 errors.append(msg)
             except Exception as exc:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
                 msg = f"video id={tv.id}: {exc}"
                 log.warning("sync falha: %s", msg)
                 errors.append(msg)
@@ -267,6 +337,14 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
                     metadata={"sync_run_id": run.id},
                     source_key=notif_source,
                 )
+
+        # Flush final da cota: garante que qualquer delta pendente (ex.: última
+        # gravação que falhou no meio do run) seja persistido antes do client
+        # ser descartado. Tolerante a falha.
+        try:
+            sync_client.flush()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[sync] flush final da cota falhou: %s", exc, exc_info=True)
 
         run.channels_processed = channels_processed
         run.videos_processed = videos_processed
@@ -287,6 +365,12 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         )
         if should_notify_final:
             if run.status == "success":
+                removed_suffix = ""
+                if channels_unavailable or videos_unavailable:
+                    removed_suffix = (
+                        f" {channels_unavailable} canais e {videos_unavailable} "
+                        "vídeos removidos do YouTube foram marcados."
+                    )
                 notifications_service.safe_upsert(
                     db,
                     type="task_done",
@@ -294,6 +378,7 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
                     title="Verificação concluída",
                     message=(
                         f"{channels_processed} canais e {videos_processed} vídeos sincronizados."
+                        + removed_suffix
                     ),
                     progress_pct=100,
                     metadata={"sync_run_id": run.id},
@@ -449,7 +534,7 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         raise
 
 
-def run_sync_in_new_session(sync_type: SyncType = "scheduled") -> SyncRun:
+def run_sync_in_new_session(sync_type: SyncType = "scheduled") -> SyncRun | None:
     """
     Wrapper pra uso pelo APScheduler — abre uma Session própria.
     Sessões do FastAPI via Depends(get_db) não valem em jobs background.
@@ -457,5 +542,9 @@ def run_sync_in_new_session(sync_type: SyncType = "scheduled") -> SyncRun:
     db = SessionLocal()
     try:
         return run_sync(db, sync_type=sync_type)
+    except SyncAlreadyRunning as exc:
+        # Agendado coincidiu com um sync ja em andamento — pula silenciosamente.
+        log.info("[sync] agendado pulado: %s", exc)
+        return None
     finally:
         db.close()

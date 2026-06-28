@@ -32,6 +32,10 @@ def get_status(db: Session = Depends(get_db)) -> SyncStatusRead:
 def run_now(db: Session = Depends(get_db)) -> SyncRunRead:
     try:
         return sync_service.run_sync(db, sync_type="manual")
+    except sync_service.SyncAlreadyRunning as exc:
+        # 409 Conflict: já há um sync rodando. O frontend mostra a mensagem
+        # em vez de disparar uma segunda rodada concorrente.
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc))
     except youtube_client.APIKeyDecryptError as exc:
         # Diferencia "sem chave" de "configuracao quebrada" pra o usuario
         # saber que precisa rever APP_SECRET_KEY, nao re-cadastrar a chave.

@@ -183,6 +183,14 @@ class YouTubeClient:
         """Se virou o dia em UTC desde o último estado em memória, zera contadores."""
         today = _today_utc_str()
         if today != self.date_utc:
+            # Persiste o consumo pendente do dia ANTERIOR antes de zerar — senão
+            # deltas já gastos mas ainda não gravados se perdem no rollover
+            # (cota subcontada). Tolerante a falha (igual ao _persist_state).
+            if self._pending_delta_by_fp or self._pending_exhausted_fp:
+                try:
+                    self._persist_state()
+                except Exception:  # noqa: BLE001
+                    pass
             self.date_utc = today
             self.used_by_fp = {fp: 0 for fp in self.fingerprints}
             self._pending_delta_by_fp = {}
@@ -324,6 +332,16 @@ class YouTubeClient:
                 )
             except Exception:
                 pass
+
+    def flush(self) -> None:
+        """
+        Persiste deltas de consumo ainda pendentes. Chamar ao FIM de um lote
+        de chamadas (ex.: um run de sync que reutiliza o mesmo client) para
+        garantir que a última gravação não fique pendente e o consumo não se
+        perca quando o objeto for descartado. Tolerante a falha (igual ao
+        `_persist_state`).
+        """
+        self._persist_state()
 
     def _record_consumption(self, idx: int, cost: int, label: str) -> None:
         fp = self.fingerprints[idx]

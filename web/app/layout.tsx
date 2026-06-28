@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ConfirmProvider } from "@/components/ConfirmDialog";
 import { GlobalSyncIndicator } from "@/components/GlobalSyncIndicator";
 import { NotificationsCenter } from "@/components/NotificationsCenter";
 import { Sidebar } from "@/components/Sidebar";
@@ -19,14 +20,16 @@ export default function RootLayout({
     <html lang="pt-BR">
       <body>
         <ToasterProvider>
-          <div className="app-shell">
-            <Sidebar />
-            <main className="main">
-              <GlobalSyncIndicator />
-              {children}
-            </main>
-          </div>
-          <NotificationsCenter />
+          <ConfirmProvider>
+            <div className="app-shell">
+              <Sidebar />
+              <main className="main">
+                <GlobalSyncIndicator />
+                {children}
+              </main>
+            </div>
+            <NotificationsCenter />
+          </ConfirmProvider>
         </ToasterProvider>
       </body>
     </html>

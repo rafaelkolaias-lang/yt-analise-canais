@@ -23,6 +23,12 @@ export type ChartBucket = "all" | "1d" | "7d" | "30d";
 // para derivadas (VPD, uploads/sem) usamos a média.
 export type ChartAggregation = "last" | "avg";
 
+// Teto de pontos por gráfico. Como o sync roda várias vezes ao dia, a série
+// "Todos" pode ter centenas de pontos colados e poluir o gráfico. Acima deste
+// limite, reamostramos pra no máximo MAX_POINTS preservando o formato da curva
+// e sempre o último ponto.
+const MAX_POINTS = 100;
+
 type Props = {
   title: string;
   data: TimeseriesPoint[];
@@ -95,6 +101,36 @@ function bucketize(points: CleanPoint[], bucketDays: number, aggregation: ChartA
   return out;
 }
 
+// Reduz a série pra no máximo `max` pontos, dividindo em grupos contíguos de
+// tamanho ~igual e aplicando a mesma agregação (último p/ cumulativas, média
+// p/ derivadas). O último grupo inclui o ponto final, então a borda direita
+// do gráfico nunca "some". Não faz nada se já estiver dentro do limite.
+function downsample(
+  points: CleanPoint[],
+  max: number,
+  aggregation: ChartAggregation
+): CleanPoint[] {
+  if (points.length <= max) return points;
+  const sorted = [...points].sort(
+    (a, b) => new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
+  );
+  const n = sorted.length;
+  const out: CleanPoint[] = [];
+  for (let i = 0; i < max; i++) {
+    const start = Math.floor((i * n) / max);
+    const end = Math.floor(((i + 1) * n) / max);
+    const group = sorted.slice(start, Math.max(end, start + 1));
+    if (group.length === 0) continue;
+    if (aggregation === "last") {
+      out.push(group[group.length - 1]);
+    } else {
+      const avg = group.reduce((acc, p) => acc + p.value, 0) / group.length;
+      out.push({ captured_at: group[group.length - 1].captured_at, value: avg });
+    }
+  }
+  return out;
+}
+
 export function ChannelChart({
   title,
   data,
@@ -113,9 +149,13 @@ export function ChannelChart({
       ? cleanRaw
       : bucketize(cleanRaw, bucket === "1d" ? 1 : bucket === "7d" ? 7 : 30, aggregation);
 
+  // Teto de pontos: mesmo no modo "Todos" (ou em buckets curtos com longo
+  // histórico), nunca renderiza mais que MAX_POINTS.
+  const capped = downsample(aggregated, MAX_POINTS, aggregation);
+
   // Em buckets diários ou maiores não precisa mostrar hora — fica menos poluído.
   const labelFn = bucket === "all" ? formatDateTime : formatDateOnly;
-  const clean = aggregated.map((p) => ({ ...p, label: labelFn(p.captured_at) }));
+  const clean = capped.map((p) => ({ ...p, label: labelFn(p.captured_at) }));
 
   if (clean.length === 0) {
     return (
@@ -125,6 +165,10 @@ export function ChannelChart({
       </div>
     );
   }
+
+  // Média do período exibido (sobre os pontos já reamostrados/plotados).
+  const avgValue =
+    clean.reduce((acc, p) => acc + p.value, 0) / clean.length;
 
   const Chart = kind === "bar" ? BarChart : LineChart;
   return (
@@ -170,6 +214,9 @@ export function ChannelChart({
           )}
         </Chart>
       </ResponsiveContainer>
+      <div className="analytics-chart-avg">
+        média do período: <strong>{formatValue(avgValue)}</strong>
+      </div>
     </div>
   );
 }

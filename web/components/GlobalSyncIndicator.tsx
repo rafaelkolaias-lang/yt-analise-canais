@@ -55,7 +55,10 @@ export function GlobalSyncIndicator() {
           const transitionedToDone =
             (prevStatus === "running" && last.status !== "running") ||
             (prevId !== null && prevId !== last.id && last.status !== "running");
-          if (transitionedToDone) {
+          // Notificação nativa só para sync AGENDADO (background): o sync manual
+          // já dá feedback via toast no próprio dashboard — notificar de novo
+          // duplicaria o aviso do mesmo evento.
+          if (transitionedToDone && last.type !== "manual") {
             sendNotification(notificationTitleFor(last), {
               body: notificationBodyFor(last),
               tag: `sync-${last.id}`,

@@ -40,8 +40,11 @@ function TextSettingInput({
   const [busy, setBusy] = useState(false);
 
   const dirty = value !== (initialValue ?? "");
-  const inputType =
-    valueType === "int" || valueType === "float" ? "number" : "text";
+  const isNumeric = valueType === "int" || valueType === "float";
+  const inputType = isNumeric ? "number" : "text";
+  // Bloqueia salvar número vazio ou inválido (evita gravar config incoerente).
+  const numericInvalid =
+    isNumeric && (value.trim() === "" || !Number.isFinite(Number(value)));
 
   return (
     <div
@@ -79,8 +82,10 @@ function TextSettingInput({
       <button
         type="button"
         className="btn-primary"
-        disabled={!dirty || busy}
+        disabled={!dirty || busy || numericInvalid}
+        title={numericInvalid ? "Informe um número válido" : undefined}
         onClick={async () => {
+          if (numericInvalid) return;
           setBusy(true);
           try {
             await onSave(value);

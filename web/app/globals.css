@@ -346,6 +346,98 @@ a {
   gap: 8px;
 }
 
+/* Botão ▶ sobre a thumbnail (abre o player embutido) -------------------- */
+.video-thumb-wrap {
+  line-height: 0;
+}
+
+.video-thumb-play {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s, background 0.12s;
+}
+
+.video-thumb-wrap:hover .video-thumb-play,
+.video-thumb-play:focus-visible {
+  opacity: 1;
+}
+
+.video-thumb-play:hover {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+/* Em telas de toque (sem hover) o ▶ fica sempre visível. */
+@media (hover: none) {
+  .video-thumb-play {
+    opacity: 1;
+  }
+}
+
+/* Modal do player de vídeo -------------------------------------------- */
+.video-modal-card {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px;
+  width: 100%;
+  max-width: 880px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+
+.video-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.video-modal-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.video-modal-frame {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.video-modal-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.video-modal-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+
 .analytics-channel-header {
   display: flex;
   justify-content: space-between;

@@ -4,6 +4,7 @@ import { GlobalSyncIndicator } from "@/components/GlobalSyncIndicator";
 import { NotificationsCenter } from "@/components/NotificationsCenter";
 import { Sidebar } from "@/components/Sidebar";
 import { ToasterProvider } from "@/components/Toaster";
+import { VideoPlayerProvider } from "@/components/VideoPlayerModal";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -21,6 +22,7 @@ export default function RootLayout({
       <body>
         <ToasterProvider>
           <ConfirmProvider>
+            <VideoPlayerProvider>
             <div className="app-shell">
               <Sidebar />
               <main className="main">
@@ -29,6 +31,7 @@ export default function RootLayout({
               </main>
             </div>
             <NotificationsCenter />
+            </VideoPlayerProvider>
           </ConfirmProvider>
         </ToasterProvider>
       </body>

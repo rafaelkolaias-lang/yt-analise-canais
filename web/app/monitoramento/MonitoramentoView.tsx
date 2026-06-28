@@ -1526,7 +1526,7 @@ export function MonitoramentoView({
                         </td>
                         <td>
                           <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                            <VideoThumbnail url={v.thumbnail_url} title={v.title} width={200} />
+                            <VideoThumbnail url={v.thumbnail_url} title={v.title} width={200} videoId={v.youtube_video_id} watchUrl={v.url} />
                             <a
                               href={v.url ?? "#"}
                               target="_blank"
@@ -1688,6 +1688,8 @@ export function MonitoramentoView({
                           url={v.thumbnail_url}
                           title={v.title}
                           width={400}
+                          videoId={v.youtube_video_id}
+                          watchUrl={v.url}
                         />
                       </a>
 
@@ -1795,6 +1797,8 @@ export function MonitoramentoView({
                         url={v.thumbnail_url}
                         title={v.title}
                         width={320}
+                        videoId={v.youtube_video_id}
+                        watchUrl={v.url}
                       />
                     </a>
                     <div className="video-card-body">

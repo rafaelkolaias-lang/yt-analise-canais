@@ -425,7 +425,7 @@ export function DescobertaForm({ defaults }: Props) {
                     <tr key={v.id}>
                       <td>
                         <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
-                          <VideoThumbnail url={v.thumbnail_url} title={v.title} width={160} />
+                          <VideoThumbnail url={v.thumbnail_url} title={v.title} width={160} videoId={v.youtube_video_id} watchUrl={v.url} />
                           <div style={{ minWidth: 0 }}>
                             <a href={v.url ?? "#"} target="_blank" rel="noreferrer">
                               {v.title}

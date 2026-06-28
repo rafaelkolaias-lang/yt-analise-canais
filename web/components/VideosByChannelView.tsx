@@ -6,6 +6,7 @@ import { ChannelAvatar } from "@/components/ChannelAvatar";
 import { ChannelChart, type ChartBucket } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
+import { VideoThumbnail } from "@/components/VideoThumbnail";
 import {
   apiGet,
   type ChannelVideoBundle,
@@ -69,20 +70,15 @@ function VideoRow({
         }}
         onClick={() => setExpanded((v) => !v)}
       >
-        {video.thumbnail_url && (
-          <img
-            src={video.thumbnail_url}
-            alt=""
-            style={{
-              width: 80,
-              height: 45,
-              objectFit: "cover",
-              borderRadius: 4,
-              flexShrink: 0,
-              opacity: isUnavailable ? 0.5 : 1,
-            }}
+        <div style={{ opacity: isUnavailable ? 0.5 : 1, flexShrink: 0 }}>
+          <VideoThumbnail
+            url={video.thumbnail_url}
+            title={video.title}
+            width={80}
+            videoId={video.youtube_video_id}
+            watchUrl={video.url}
           />
-        )}
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
             style={{

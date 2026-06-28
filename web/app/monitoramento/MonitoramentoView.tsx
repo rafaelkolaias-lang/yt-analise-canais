@@ -1957,6 +1957,8 @@ export function MonitoramentoView({
                                   url={v.thumbnail_url}
                                   title={v.title}
                                   width={200}
+                                  videoId={v.youtube_video_id}
+                                  watchUrl={v.url}
                                 />
                                 <a
                                   href={v.url ?? "#"}

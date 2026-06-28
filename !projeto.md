@@ -72,7 +72,7 @@ Pontos importantes recentes:
 ## Atualizações recentes (2026-06-27)
 
 Frontend:
-- **Player de vídeo embutido** (`web/components/VideoPlayerModal.tsx` + `VideoPlayerProvider` no `layout.tsx`): botão ▶ na `VideoThumbnail` abre o player oficial do YouTube num modal (custo zero de cota) + botão "Assistir no YouTube". Vale em Monitoramento, Descoberta e Analytics → Vídeos por canal. Hook: `useVideoPlayer()`.
+- **Player de vídeo embutido** (`web/components/VideoPlayerModal.tsx` + `VideoPlayerProvider` no `layout.tsx`): botão ▶ na `VideoThumbnail` abre o player oficial do YouTube num modal (custo zero de cota) + botão "Assistir no YouTube". Vale em **todas** as telas com vídeo: Monitoramento (Vídeos lista/grade/mobile e Melhores vídeos), Descoberta, Runs → Descoberta e Analytics → Vídeos por canal. Hook: `useVideoPlayer()`. Único `<img>` sem play é o `ChannelAvatar` (canal, não-vídeo).
 - **Analytics**: "Score de Oportunidade" (0–100) por canal com badge colorido + botão "Ordenar por: Sinal / Oportunidade" (novo param `sort=signal|score` em `GET /api/analytics/channels`). Cards ganham borda esquerda colorida por sinal (segmentação visual).
 - **ChannelChart** (`web/components/ChannelChart.tsx`): teto de 100 pontos por gráfico (reamostragem preservando formato e último ponto) + rodapé "média do período".
 - **ConfirmDialog** (`web/components/ConfirmDialog.tsx` + `ConfirmProvider` no `layout.tsx`): modal próprio substitui todos os `confirm()` nativos. Uso via `useConfirm()`.

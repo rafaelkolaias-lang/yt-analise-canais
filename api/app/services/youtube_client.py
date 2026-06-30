@@ -75,6 +75,15 @@ class InvalidAPIKey(RuntimeError):
     pass
 
 
+class PlaylistNotFound(RuntimeError):
+    """
+    YouTube respondeu 404 numa playlist (tipicamente a uploads playlist de um
+    canal que privou/removeu todos os vídeos). O caller decide o que fazer —
+    em `snapshot_channel` vira "canal sem conteúdo → pausar".
+    """
+    pass
+
+
 class NoAPIKeyConfigured(RuntimeError):
     pass
 
@@ -460,6 +469,14 @@ class YouTubeClient:
                 if attempt < max_attempts:
                     time.sleep(min(2 ** attempt, 8))
                     continue
+
+            # 404 em playlist = uploads playlist inexistente (canal sem vídeos
+            # públicos). Exceção específica pra o caller pausar o canal em vez
+            # de tratar como erro genérico que quebra o sync toda rodada.
+            if r.status_code == 404 and "playlist" in body:
+                raise PlaylistNotFound(
+                    f"Playlist não encontrada em {endpoint}: {r.text[:200]}"
+                )
 
             raise RuntimeError(
                 f"YouTube API {endpoint} retornou HTTP {r.status_code}: {r.text[:200]}"

@@ -117,6 +117,8 @@ export function AnalyticsView({ niches }: Props) {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [signalFilter, setSignalFilter] = useState<SignalFilter>("all");
   const [sortBy, setSortBy] = useState<SortBy>("signal");
+  const [search, setSearch] = useState("");
+  const [q, setQ] = useState(""); // versão "debounced" enviada à API
   const [chartBucket, setChartBucket] = useState<ChartBucket>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
@@ -137,7 +139,7 @@ export function AnalyticsView({ niches }: Props) {
             `/api/analytics/overview?status=${statusFilter}`
           ),
           apiGet<PaginatedChannelAnalytics>(
-            `/api/analytics/channels?page=${page}&page_size=${pageSize}&status=${statusFilter}&signal=${signalFilter}&sort=${sortBy}`
+            `/api/analytics/channels?page=${page}&page_size=${pageSize}&status=${statusFilter}&signal=${signalFilter}&sort=${sortBy}&q=${encodeURIComponent(q)}`
           ),
         ]);
         if (!cancelled) {
@@ -154,7 +156,19 @@ export function AnalyticsView({ niches }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [page, pageSize, statusFilter, signalFilter, sortBy, reloadTick]);
+  }, [page, pageSize, statusFilter, signalFilter, sortBy, q, reloadTick]);
+
+  // Busca com debounce: digita e em 300ms a lista filtra (volta pra página 1).
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = search.trim();
+      setQ((prev) => {
+        if (prev !== next) setPage(1);
+        return next;
+      });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const totalPages = data?.total_pages ?? 0;
   const total = data?.total ?? 0;
@@ -204,6 +218,24 @@ export function AnalyticsView({ niches }: Props) {
 
       {activeTab === "channels" && (
         <>
+      {/* Barra de busca por nome do canal */}
+      <section className="card" style={{ marginBottom: 16 }}>
+        <input
+          type="text"
+          className="input"
+          placeholder="Buscar canal por nome…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Buscar canal por nome"
+          style={{ width: "100%" }}
+        />
+        {q && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            {total} resultado(s) para “{q}”
+          </div>
+        )}
+      </section>
+
       {/* Barra de filtro de status */}
       <section
         className="card"

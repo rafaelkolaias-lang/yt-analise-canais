@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from statistics import median
 from typing import Optional
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Channel, ChannelSnapshot, ChannelTag, Tag, TrackedVideo, VideoSnapshot
@@ -420,6 +420,7 @@ def videos_by_channel(
     page: int,
     page_size: int,
     channel_status: Optional[str] = None,
+    q: Optional[str] = None,
 ) -> dict:
     """
     Lista canais paginada (pelo canal) com seus vídeos monitorados e séries
@@ -435,6 +436,18 @@ def videos_by_channel(
     base = _channel_query(db, channel_status)
     if base is None:
         return {"page": page, "page_size": page_size, "total": 0, "total_pages": 0, "items": []}
+
+    # Busca: inclui o canal se o NOME do canal casar OU se ele tiver algum
+    # VÍDEO cujo título case (case-insensitive). Assim "pesquisar nome do
+    # canal/vídeo" funciona nesta aba organizada por canal.
+    if q and q.strip():
+        like = f"%{q.strip()}%"
+        vid_channel_ids = select(TrackedVideo.channel_id).where(
+            TrackedVideo.title.ilike(like)
+        )
+        base = base.filter(
+            or_(Channel.title.ilike(like), Channel.id.in_(vid_channel_ids))
+        )
 
     total: int = base.count()
     total_pages = (total + page_size - 1) // page_size if total else 0
@@ -544,6 +557,7 @@ def channels_paginated(
     status: Optional[str] = None,
     signal: Optional[str] = None,
     sort: Optional[str] = None,
+    q: Optional[str] = None,
 ) -> dict:
     """
     Lista canais paginada com filtros opcionais de `status` (situacao do
@@ -574,6 +588,11 @@ def channels_paginated(
     base = _channel_query(db, status)
     if base is None:
         return {"page": page, "page_size": page_size, "total": 0, "total_pages": 0, "items": []}
+
+    # Busca por nome do canal (case-insensitive). Aplicada no SQL pra reduzir o
+    # conjunto carregado em memória antes de derivar sinal/ordenar.
+    if q and q.strip():
+        base = base.filter(Channel.title.ilike(f"%{q.strip()}%"))
 
     # Carrega todos os canais que passam no filtro de status, junto com
     # o sinal do ultimo snapshot. O custo extra do "carregar todos antes

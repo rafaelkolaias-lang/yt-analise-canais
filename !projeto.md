@@ -81,6 +81,7 @@ Frontend:
 - **SettingInput**: bloqueia salvar número vazio/inválido.
 
 Backend:
+- **Canal sem conteúdo → auto-pausa**: quando a uploads playlist dá 404 (canal privou/removeu todos os vídeos), `youtube_client` levanta `PlaylistNotFound`; `snapshot_channel` captura, chama `_mark_channel_empty` (status=paused, sem blacklist) e levanta `ChannelEmptyError` (subclasse de `PermanentlyUnavailableError`) — o sync conta como tratado, não como falha. Evita o erro "playlistItems 404" toda rodada e tira o canal da lista de Ativos.
 - **Sync** (`sync_service.py`): guard anti-concorrência (`SyncAlreadyRunning` → 409 em `/api/sync/run`; agendado pula); reusa 1 `YouTubeClient` por run + `flush()` no fim; `db.rollback()` por item com erro; **ordem ALEATÓRIA** dos canais/vídeos (cobertura justa quando a cota acaba); contadores separam removidos de sincronizados; stale-guard de run travado = 6h.
 - **Monitoring** (`monitoring_service.py`): `list_channels`/`list_videos` sem N+1 (snapshots em lote / joinedload); `snapshot_channel`/`snapshot_video` aceitam `client`; `_accumulate_best_video` não comita (snapshot atômico); re-adicionar canal remove da blacklist.
 - **Analytics** (`analytics_service_v2.py`): `opportunity_score()` + param `sort`.

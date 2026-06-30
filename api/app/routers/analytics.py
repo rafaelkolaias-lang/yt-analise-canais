@@ -41,10 +41,11 @@ def get_channels_paginated(
     status: str = Query("active", pattern=_STATUS_PATTERN),
     signal: str = Query("all", pattern=_SIGNAL_PATTERN),
     sort: str = Query("signal", pattern=_SORT_PATTERN),
+    q: str = Query("", max_length=200),
     db: Session = Depends(get_db),
 ) -> PaginatedChannelAnalytics:
     data = analytics_service.channels_paginated(
-        db, page, page_size, status=status, signal=signal, sort=sort
+        db, page, page_size, status=status, signal=signal, sort=sort, q=q
     )
     return PaginatedChannelAnalytics(**data)
 
@@ -83,9 +84,10 @@ def get_videos_by_channel(
     page: int = Query(1, ge=1),
     page_size: int = Query(10, ge=1, le=20),
     channel_status: str = Query("active", pattern=_STATUS_PATTERN),
+    q: str = Query("", max_length=200),
     db: Session = Depends(get_db),
 ) -> PaginatedVideosByChannel:
     data = analytics_service.videos_by_channel(
-        db, page, page_size, channel_status=channel_status
+        db, page, page_size, channel_status=channel_status, q=q
     )
     return PaginatedVideosByChannel(**data)

@@ -273,10 +273,10 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
                 monitoring_service.snapshot_channel(db, ch.id, client=sync_client)
                 channels_processed += 1
             except monitoring_service.PermanentlyUnavailableError as exc:
-                # Canal removido do YouTube não conta como "sincronizado":
-                # ele foi marcado como removido, não atualizado.
+                # Canal indisponível (removido) ou sem conteúdo (pausado) não
+                # conta como "sincronizado" — foi tratado, não atualizado.
                 channels_unavailable += 1
-                msg = f"info: canal removido tratado: {exc}"
+                msg = f"info: {exc}"
                 log.info("sync indisponibilidade persistente: %s", msg)
                 errors.append(msg)
             except Exception as exc:
@@ -312,7 +312,7 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
                 videos_processed += 1
             except monitoring_service.PermanentlyUnavailableError as exc:
                 videos_unavailable += 1
-                msg = f"info: video removido tratado: {exc}"
+                msg = f"info: {exc}"
                 log.info("sync indisponibilidade persistente: %s", msg)
                 errors.append(msg)
             except Exception as exc:
@@ -369,7 +369,7 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
                 if channels_unavailable or videos_unavailable:
                     removed_suffix = (
                         f" {channels_unavailable} canais e {videos_unavailable} "
-                        "vídeos removidos do YouTube foram marcados."
+                        "vídeos indisponíveis foram tratados (removidos ou pausados)."
                     )
                 notifications_service.safe_upsert(
                     db,

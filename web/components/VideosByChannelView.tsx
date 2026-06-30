@@ -253,6 +253,8 @@ function ChannelGroup({
 export function VideosByChannelView() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [chartBucket, setChartBucket] = useState<ChartBucket>("all");
+  const [search, setSearch] = useState("");
+  const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
   const [data, setData] = useState<PaginatedVideosByChannel | null>(null);
   const [loading, setLoading] = useState(true);
@@ -266,7 +268,7 @@ export function VideosByChannelView() {
       setError(null);
       try {
         const resp = await apiGet<PaginatedVideosByChannel>(
-          `/api/analytics/videos-by-channel?page=${page}&page_size=10&channel_status=${statusFilter}`
+          `/api/analytics/videos-by-channel?page=${page}&page_size=10&channel_status=${statusFilter}&q=${encodeURIComponent(q)}`
         );
         if (!cancelled) setData(resp);
       } catch (e) {
@@ -279,7 +281,19 @@ export function VideosByChannelView() {
     return () => {
       cancelled = true;
     };
-  }, [page, statusFilter, reloadTick]);
+  }, [page, statusFilter, q, reloadTick]);
+
+  // Busca com debounce (canal ou título de vídeo): 300ms e volta pra página 1.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const next = search.trim();
+      setQ((prev) => {
+        if (prev !== next) setPage(1);
+        return next;
+      });
+    }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const totalPages = data?.total_pages ?? 0;
   const total = data?.total ?? 0;
@@ -290,6 +304,24 @@ export function VideosByChannelView() {
 
   return (
     <>
+      {/* Busca por nome do canal ou do vídeo */}
+      <section className="card" style={{ marginBottom: 16 }}>
+        <input
+          type="text"
+          className="input"
+          placeholder="Buscar por nome do canal ou do vídeo…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          aria-label="Buscar por nome do canal ou do vídeo"
+          style={{ width: "100%" }}
+        />
+        {q && (
+          <div className="muted" style={{ fontSize: 11, marginTop: 6 }}>
+            {total} canal(is) com correspondência para “{q}”
+          </div>
+        )}
+      </section>
+
       {/* Filtro de status do canal */}
       <section
         className="card"

@@ -55,6 +55,16 @@ class ChannelUnavailableError(PermanentlyUnavailableError):
     pass
 
 
+class ChannelEmptyError(PermanentlyUnavailableError):
+    """
+    Canal existe mas não tem vídeos públicos (todos privados/removidos). É
+    tratado como "indisponível" no sync (não conta como falha bloqueante) e o
+    canal é PAUSADO automaticamente — diferente de removido: pode voltar a
+    postar, e não entra na blacklist.
+    """
+    pass
+
+
 class VideoUnavailableError(PermanentlyUnavailableError):
     pass
 
@@ -85,6 +95,23 @@ def _remove_from_blacklist(db: Session, youtube_channel_id: str) -> bool:
         return False
     db.delete(row)
     return True
+
+
+def _mark_channel_empty(db: Session, channel: Channel) -> str:
+    """
+    Canal sem vídeos públicos (uploads playlist 404) → PAUSA automaticamente.
+    Não remove nem blacklista: o canal pode voltar a postar e ser retomado.
+    """
+    message = (
+        f"Pausado automaticamente: canal sem vídeos públicos "
+        f"(todos privados/removidos). Canal: {channel.title}. "
+        f"URL: {channel.url or '-'} . ID: {channel.youtube_channel_id}."
+    )[:2000]
+    channel.status = "paused"
+    channel.is_active = False
+    channel.notes = message
+    db.commit()
+    return message
 
 
 def _mark_channel_unavailable(db: Session, channel: Channel, reason: str) -> str:
@@ -501,8 +528,13 @@ def snapshot_channel(
         channel.thumbnail_url = new_thumb
 
     # 2) uploads recentes reais do canal (mesmo lote usado para "melhor vídeo"
-    # e para a frequência semanal de uploads)
-    best, uploads_per_week = _recent_upload_metrics(client, channel, sample_size)
+    # e para a frequência semanal de uploads).
+    # Se a uploads playlist some (404), o canal privou/removeu todos os vídeos:
+    # pausa automaticamente em vez de quebrar o sync toda rodada.
+    try:
+        best, uploads_per_week = _recent_upload_metrics(client, channel, sample_size)
+    except youtube_client.PlaylistNotFound:
+        raise ChannelEmptyError(_mark_channel_empty(db, channel))
     _accumulate_best_video(db, channel, best)
 
     # 3) deltas vs último snapshot

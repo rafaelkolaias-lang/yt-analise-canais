@@ -45,8 +45,8 @@ AGENTS.md
 RULES.md
 temporary_rules.md
 
-# Schema SQL (contém estrutura sensível do banco)
-dados.sql
+# Dumps/schemas SQL (contêm dados e estrutura sensível do banco)
+*.sql
 
 # Manual de credenciais (contém chave fixa de descriptografia dos apps)
 \!manual-credenciais.md

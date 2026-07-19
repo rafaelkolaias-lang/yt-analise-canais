@@ -14,10 +14,10 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# NEXT_PUBLIC_API_URL é lido em build time pelo Next.
-# Passar via --build-arg no `docker build` OU via env var do EasyPanel (Nixpacks repassa).
+# NEXT_PUBLIC_API_URL é lido em build time pelo Next (inlined no bundle).
+# Default aponta pra produção; sobrescrever via --build-arg em dev/CI se preciso.
 ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://youtube-analyzer-api.duckdns.org}
 
 RUN npm run build
 

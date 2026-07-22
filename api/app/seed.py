@@ -255,6 +255,18 @@ DEFAULT_SETTINGS: list[dict] = [
         "value_type": "int",
         "description": "7.3.2 — VPD máximo para considerar o canal 'morto'.",
     },
+    {
+        "key": "suggestions.auto_candidates_enabled",
+        "value": "true",
+        "value_type": "bool",
+        "description": "7.4.1 — Liga/desliga a observação automática das top sugestões (candidatos).",
+    },
+    {
+        "key": "suggestions.max_candidates",
+        "value": "10",
+        "value_type": "int",
+        "description": "7.4.2 — Quantos canais sugeridos ficam em observação automática ao mesmo tempo.",
+    },
     # -------------------------------------------------------------
     # Notificações — estado interno (escondido da UI via INTERNAL_KEYS)
     # -------------------------------------------------------------

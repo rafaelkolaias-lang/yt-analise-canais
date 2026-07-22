@@ -26,6 +26,32 @@ class MonitorSuggestion(BaseModel):
     reason: str
 
 
+class CandidateChannel(BaseModel):
+    """Sugestão em observação automática (status=candidate) com evolução."""
+    channel_id: int
+    youtube_channel_id: str
+    title: str
+    url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    days_observed: int
+    snapshots_count: int
+    subscribers: Optional[int] = None
+    first_vpd: Optional[float] = None
+    last_vpd: Optional[float] = None
+    vpd_delta_pct: Optional[float] = None
+    signal: Optional[str] = None
+    first_snapshot_at: Optional[str] = None
+    last_snapshot_at: Optional[str] = None
+
+
+class DismissSuggestionRequest(BaseModel):
+    youtube_channel_id: str
+
+
+class SuggestionOpResponse(BaseModel):
+    ok: bool
+
+
 class DeadChannelSuggestion(BaseModel):
     """Canal já monitorado que parece morto (recomendação, não ação)."""
     channel_id: int

@@ -79,7 +79,9 @@ def opportunity_score(snap: Optional[ChannelSnapshot]) -> int:
 
 
 def _channel_query(db: Session, status: Optional[str]):
-    query = db.query(Channel)
+    # Candidatos (sugestões em observação automática) nunca aparecem no
+    # Analytics — nem no filtro "all". Eles vivem só na página Sugestões.
+    query = db.query(Channel).filter(Channel.status != "candidate")
     if status and status != "all":
         if status not in ALLOWED_STATUS_FILTERS:
             return None
@@ -656,6 +658,8 @@ def channels_paginated(
                     "title": channel.title,
                     "url": channel.url,
                     "thumbnail_url": channel.thumbnail_url,
+                    "spike_alert_enabled": channel.spike_alert_enabled,
+                    "spike_alert_multiplier": channel.spike_alert_multiplier,
                 },
                 "opportunity_score": score_by_channel.get(channel.id, 0),
                 "summary": summary,

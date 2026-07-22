@@ -293,10 +293,7 @@ function NotificationCard({
           )}
           {isSuggestionsChanged && (
             <div style={{ marginTop: 6, fontSize: 11 }}>
-              <a
-                href="/monitoramento?tab=suggestions"
-                onClick={(e) => e.stopPropagation()}
-              >
+              <a href="/sugestoes" onClick={(e) => e.stopPropagation()}>
                 Ver sugestões →
               </a>
             </div>

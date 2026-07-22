@@ -4,15 +4,24 @@ import { useState } from "react";
 
 import { apiPatch, type MonitoredChannel } from "@/lib/api";
 
+// Shape mínimo que o controle precisa — aceita tanto MonitoredChannel
+// (Monitoramento) quanto ChannelAnalyticsBasic (Analytics).
+export type SpikeAlertChannel = {
+  id: number;
+  title: string;
+  spike_alert_enabled: boolean;
+  spike_alert_multiplier: number;
+};
+
 /**
- * Controle do alerta de pico de views de UM canal (Monitoramento).
+ * Controle do alerta de pico de views de UM canal (Monitoramento/Analytics).
  *
  * Sino liga/desliga; com o alerta ligado aparece o campo do multiplicador
  * (ex.: 2 = disparar quando o ganho de views das últimas 24h for 2x a média
  * diária dos 7 dias anteriores do canal). Salva direto no PATCH
  * /api/monitoring/channels/{id}/spike-alert.
  */
-export function SpikeAlertControl({ channel }: { channel: MonitoredChannel }) {
+export function SpikeAlertControl({ channel }: { channel: SpikeAlertChannel }) {
   const [enabled, setEnabled] = useState(channel.spike_alert_enabled ?? false);
   const [multiplier, setMultiplier] = useState<string>(
     String(channel.spike_alert_multiplier ?? 2)

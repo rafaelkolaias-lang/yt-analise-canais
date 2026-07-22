@@ -5,6 +5,22 @@
 
 ---
 
+## ✅ 5. Sugestões: página própria + candidatos em observação automática
+
+Status: CONCLUÍDO (Claude 1, 22/07/2026 — aguardando deploy api+web e `python -m app.seed`)
+
+Solicitacao:
+- "Sugestões" vira item proprio na sidebar (abaixo de Monitoramento).
+- As top sugestoes devem ser observadas automaticamente pelo sistema (snapshots de VPD) para ganhar/perder pontuacao com o tempo, ate o usuario decidir Monitorar ou Dispensar (botao novo).
+
+Solução aplicada (opcao A escolhida pelo usuario — reuso do sync):
+- Canal sugerido vira row em `channels` com `status="candidate"` (sem migration): o sync de 12h ja snapshotta; escondido de Monitoramento (`list_channels`) e Analytics (`_channel_query`).
+- `suggestion_candidates_service.py`: auto-add das top sugestoes pos-sync ate o teto (`suggestions.max_candidates`=10, liga/desliga em `suggestions.auto_candidates_enabled` — seeds novos), com snapshot imediato de baseline; `list_candidates` (evolucao VPD primeiro vs ultimo snapshot, ordenado por crescimento), `promote` (→active), `dismiss` (delete+blacklist `suggestion_dismissed`), `dismiss_suggestion` (blacklist direto pra sugestao nao-candidata).
+- Endpoints: GET `/api/suggestions/candidates`, POST `/candidates/{id}/promote`, POST `/candidates/{id}/dismiss`, POST `/api/suggestions/dismiss`.
+- Web: pagina `/sugestoes` (`SugestoesView.tsx`: secao "Em observação automática" com VPD inicial/atual/evolucao% + Monitorar/Dispensar; listas "para monitorar" com Dispensar novo e "mortos"); item "Sugestões" na sidebar; aba antiga removida do Monitoramento (`?tab=suggestions` redireciona); link da central aponta pra `/sugestoes`.
+- Validado: compileall + import OK, `npm run build` OK.
+- Deploy: api + web + `python -m app.seed` (2 settings novas). Sem migration.
+
 ## ✅ 3. Sistema de login nativo (site + API + app Windows)
 
 Status: CONCLUÍDO (Claude 1, 22/07/2026 — aguardando deploy: migration + seed)

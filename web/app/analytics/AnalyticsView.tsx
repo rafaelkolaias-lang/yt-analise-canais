@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ChannelAvatar } from "@/components/ChannelAvatar";
+import { SpikeAlertControl } from "@/components/SpikeAlertControl";
 import { ChannelChart, type ChartBucket } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
@@ -604,6 +605,7 @@ export function AnalyticsView({ niches }: Props) {
                     <span className={`status-pill ${signalClass}`}>
                       {signalLabel(signal)}
                     </span>
+                    <SpikeAlertControl channel={channel} />
                   </div>
                 </div>
 

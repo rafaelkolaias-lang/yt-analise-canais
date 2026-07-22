@@ -320,6 +320,23 @@ export type MonitorSuggestion = {
   reason: string;
 };
 
+export type CandidateChannel = {
+  channel_id: number;
+  youtube_channel_id: string;
+  title: string;
+  url: string | null;
+  thumbnail_url: string | null;
+  days_observed: number;
+  snapshots_count: number;
+  subscribers: number | null;
+  first_vpd: number | null;
+  last_vpd: number | null;
+  vpd_delta_pct: number | null;
+  signal: string | null;
+  first_snapshot_at: string | null;
+  last_snapshot_at: string | null;
+};
+
 export type DeadChannelSuggestion = {
   channel_id: number;
   youtube_channel_id: string;
@@ -542,6 +559,9 @@ export type ChannelAnalyticsBasic = {
   title: string;
   url: string | null;
   thumbnail_url: string | null;
+  // Estado do alerta de pico — permite o sino no card do Analytics.
+  spike_alert_enabled: boolean;
+  spike_alert_multiplier: number;
 };
 
 export type ChannelAnalyticsBundle = {

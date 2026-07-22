@@ -109,6 +109,11 @@ Backend:
 - Endpoint `PATCH /api/monitoring/channels/{id}/spike-alert` (`{enabled?, multiplier?}`).
 - Web: sino 🔔 + campo do multiplicador por canal no Monitoramento (`web/components/SpikeAlertControl.tsx`, tabela e mobile); card na central com "Ver no Analytics →"; `NotificationsCenter` agora faz polling da LISTA em background e dispara **notificação de navegador** para `view_spike` novos; `/analytics?q=` pré-preenche a busca (deep-link).
 
+**Sugestões — página própria + candidatos em observação (2026-07-22):**
+- `/sugestoes` é página própria (item na sidebar); a aba dentro do Monitoramento foi removida (`?tab=suggestions` redireciona). Central de notificações linka pra `/sugestoes`.
+- **Candidatos**: top sugestões viram `channels.status="candidate"` automaticamente após cada sync (`suggestion_candidates_service.auto_add_from_suggestions`, teto `suggestions.max_candidates`=10, toggle `suggestions.auto_candidates_enabled`). O sync normal snapshotta; a página mostra evolução do VPD (inicial → atual, %). Botões: Monitorar (promote → active) e Dispensar (delete + blacklist `suggestion_dismissed`). Sugestão comum também tem Dispensar (só blacklist).
+- Candidatos são INVISÍVEIS em Monitoramento (`routers/monitoring.list_channels`) e Analytics (`analytics_service_v2._channel_query` exclui `candidate` sempre, até no filtro "all"). `list_dead_suggestions` só olha `status="active"`.
+
 **Notificador do Windows (`windows-notifier/`):**
 - `notifier.py` (Python stdlib puro): roda em background (`pythonw`), login uma vez (client `desktop`, token salvo em `%APPDATA%\RK-YT-Notifier\config.json`), polling 60s de `/api/notifications`, popup custom tkinter no canto inferior direito pra cada `view_spike` novo — clique abre `site_url + metadata.link`. Âncora `last_seen_id` evita re-notificar picos antigos. Ver `windows-notifier/README.md`.
 - **Autostart**: após o primeiro login, registra sozinho em `HKCU\...\Run` (winreg). **Configurações** (⚙ no popup ou `configurar-notificador.bat` / `--config`): liga/desliga autostart, URLs, sair da conta, encerrar. Instância única via bind na porta local 47653.

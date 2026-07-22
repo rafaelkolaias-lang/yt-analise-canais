@@ -153,7 +153,14 @@ def _video_read(tv: TrackedVideo) -> TrackedVideoRead:
 
 @router.get("/channels", response_model=list[ChannelWithStats])
 def list_channels(db: Session = Depends(get_db)) -> list[ChannelWithStats]:
-    rows = db.query(Channel).order_by(Channel.created_at.desc()).all()
+    # Candidatos (status="candidate") ficam fora do Monitoramento — eles são
+    # sugestões em observação automática e vivem na página Sugestões.
+    rows = (
+        db.query(Channel)
+        .filter(Channel.status != "candidate")
+        .order_by(Channel.created_at.desc())
+        .all()
+    )
     latest = _latest_snapshots_by_channel(db, [c.id for c in rows])
     return [_channel_with_stats(c, latest.get(c.id)) for c in rows]
 

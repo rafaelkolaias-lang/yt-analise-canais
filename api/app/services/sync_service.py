@@ -441,6 +441,16 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
         except Exception as exc:  # noqa: BLE001
             log.warning("suggestions_changed: checagem falhou: %s", exc)
 
+        # Etapa pós-sync: top sugestões viram "candidatos" em observação
+        # automática (status=candidate — snapshotados pelos próximos syncs).
+        # Import tardio evita ciclo. Engole falha — não derruba sync.
+        try:
+            from app.services import suggestion_candidates_service
+
+            suggestion_candidates_service.auto_add_from_suggestions(db)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("[candidates] auto-add pos-sync falhou: %s", exc, exc_info=True)
+
         # Re-ancora o job automatico em `started_at + intervalo`, para que o
         # "proximo sync" exibido nunca seja anterior ao ultimo run (manual
         # ou agendado). Engole falha — re-ancorar nao e critico para o run.

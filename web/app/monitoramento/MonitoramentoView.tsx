@@ -30,15 +30,13 @@ import {
   apiPost,
   type BulkOperationResponse,
   type ChannelSnapshot,
-  type DeadChannelSuggestion,
-  type MonitorSuggestion,
   type MonitoredChannel,
   type MonitoredVideo,
   type VideoSnapshot,
 } from "@/lib/api";
 import { useIsMobile } from "@/lib/useIsMobile";
 
-type Tab = "channels" | "videos" | "best" | "suggestions";
+type Tab = "channels" | "videos" | "best";
 type VideoLayout = "list" | "grid";
 
 type BulkProgress = {
@@ -101,9 +99,6 @@ export function MonitoramentoView({
   const [channels, setChannels] = useState<MonitoredChannel[]>(initialChannels);
   const [videos, setVideos] = useState<MonitoredVideo[]>(initialVideos);
   const [bestByChannel, setBestByChannel] = useState<Record<number, MonitoredVideo[]>>({});
-  const [monitorSuggestions, setMonitorSuggestions] = useState<MonitorSuggestion[] | null>(null);
-  const [deadSuggestions, setDeadSuggestions] = useState<DeadChannelSuggestion[] | null>(null);
-  const [loadingSuggestions, setLoadingSuggestions] = useState(false);
   const [rowState, setRowState] = useState<RowState>({});
   const [videoLayout, setVideoLayout] = useState<VideoLayout>("list");
   const [channelFilters, setChannelFilters] = useState<ChannelFilters>(
@@ -152,8 +147,8 @@ export function MonitoramentoView({
     }
   }, []);
 
-  // Suporte a deep-link `?tab=suggestions` (usado pela notificacao
-  // "Sugestoes mudaram" da central). Aplica a aba uma vez no mount.
+  // Deep-link `?tab=`. A antiga aba "suggestions" virou página própria —
+  // links velhos (`/monitoramento?tab=suggestions`) redirecionam pra ela.
   useEffect(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -161,10 +156,11 @@ export function MonitoramentoView({
       if (
         requested === "channels" ||
         requested === "videos" ||
-        requested === "best" ||
-        requested === "suggestions"
+        requested === "best"
       ) {
         setTab(requested);
+      } else if (requested === "suggestions") {
+        window.location.replace("/sugestoes");
       }
     } catch {
       /* ignore */
@@ -654,97 +650,6 @@ export function MonitoramentoView({
   }
 
   // -------------------------------------------------------------------------
-  // Sugestões (recomendações de monitorar / remover por canal morto)
-  // -------------------------------------------------------------------------
-  const loadSuggestions = useCallback(async () => {
-    setLoadingSuggestions(true);
-    try {
-      const [toMon, toRemove] = await Promise.all([
-        apiGet<MonitorSuggestion[]>("/api/suggestions/to-monitor"),
-        apiGet<DeadChannelSuggestion[]>("/api/suggestions/to-remove"),
-      ]);
-      setMonitorSuggestions(toMon);
-      setDeadSuggestions(toRemove);
-    } catch (e) {
-      toast.error(`Falha ao carregar sugestões: ${describeError(e)}`);
-    } finally {
-      setLoadingSuggestions(false);
-    }
-  }, [toast]);
-
-  async function onOpenSuggestionsTab() {
-    setTab("suggestions");
-    // Sempre recarrega ao abrir a aba: o sync pode ter gerado/removido
-    // sugestões desde a última visita, então o número e a lista ficam frescos
-    // (antes só carregava na primeira vez e o badge podia ficar desatualizado).
-    await loadSuggestions();
-  }
-
-  // Carrega sugestoes se a aba foi ativada por deep-link (sem passar pelo
-  // handler do botao). Sem este efeito, abrir `/monitoramento?tab=suggestions`
-  // mostraria a aba vazia ate o usuario clicar em "Recarregar".
-  useEffect(() => {
-    if (tab !== "suggestions") return;
-    if (monitorSuggestions !== null || deadSuggestions !== null) return;
-    if (loadingSuggestions) return;
-    void loadSuggestions();
-  }, [tab, monitorSuggestions, deadSuggestions, loadingSuggestions, loadSuggestions]);
-
-  async function onAddSuggestedChannel(s: MonitorSuggestion) {
-    try {
-      await apiPost<MonitoredChannel>("/api/monitoring/channels", {
-        youtube_channel_id: s.youtube_channel_id,
-      });
-      toast.success(`Monitorando "${s.title}".`);
-      // Tira da lista de sugestões na hora pra dar feedback imediato.
-      setMonitorSuggestions((prev) =>
-        prev ? prev.filter((x) => x.youtube_channel_id !== s.youtube_channel_id) : prev
-      );
-      await refreshChannels();
-    } catch (e) {
-      toast.error(describeError(e));
-    }
-  }
-
-  async function onPauseDeadChannel(s: DeadChannelSuggestion) {
-    try {
-      await apiPatch<MonitoredChannel>(`/api/monitoring/channels/${s.channel_id}`, {
-        status: "paused",
-      });
-      toast.success(`"${s.title}" pausado.`);
-      setDeadSuggestions((prev) =>
-        prev ? prev.filter((x) => x.channel_id !== s.channel_id) : prev
-      );
-      await refreshChannels();
-    } catch (e) {
-      toast.error(describeError(e));
-    }
-  }
-
-  async function onRemoveDeadChannel(s: DeadChannelSuggestion) {
-    if (
-      !(await confirm({
-        title: "Remover canal",
-        message: `Remover "${s.title}" e todo o histórico de snapshots? O canal entrará na blacklist.`,
-        confirmLabel: "Remover",
-        danger: true,
-      }))
-    ) {
-      return;
-    }
-    try {
-      await apiDelete(`/api/monitoring/channels/${s.channel_id}`);
-      toast.success(`"${s.title}" removido.`);
-      setDeadSuggestions((prev) =>
-        prev ? prev.filter((x) => x.channel_id !== s.channel_id) : prev
-      );
-      setChannels((prev) => prev.filter((c) => c.id !== s.channel_id));
-    } catch (e) {
-      toast.error(describeError(e));
-    }
-  }
-
-  // -------------------------------------------------------------------------
   // Best videos por canal
   // -------------------------------------------------------------------------
   // Endpoint singular ainda usado quando atualizamos um canal específico
@@ -852,17 +757,6 @@ export function MonitoramentoView({
           onClick={onOpenBestTab}
         >
           Melhores vídeos
-        </button>
-        <button
-          className={tab === "suggestions" ? "tab active" : "tab"}
-          onClick={onOpenSuggestionsTab}
-        >
-          Sugestões
-          {monitorSuggestions != null && deadSuggestions != null && (
-            <span className="tab-count">
-              {monitorSuggestions.length + deadSuggestions.length}
-            </span>
-          )}
         </button>
       </div>
 
@@ -2001,237 +1895,7 @@ export function MonitoramentoView({
         </div>
       )}
 
-      {tab === "suggestions" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card" style={{ background: "rgba(79, 140, 255, 0.05)" }}>
-            <div style={{ fontSize: 13 }}>
-              <strong>Recomendações automáticas.</strong>{" "}
-              <span className="muted">
-                As ações abaixo são <strong>sugestões</strong> baseadas nos
-                thresholds configurados em{" "}
-                <a href="/configuracoes">Configurações → Sugestões</a>. Nada é
-                executado automaticamente — você decide o que aceitar.
-              </span>
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={loadSuggestions}
-                disabled={loadingSuggestions}
-                style={{ marginLeft: 12 }}
-              >
-                {loadingSuggestions ? "..." : "Recarregar"}
-              </button>
-            </div>
-          </div>
-
-          <SuggestionsToMonitor
-            items={monitorSuggestions}
-            loading={loadingSuggestions}
-            onAdd={onAddSuggestedChannel}
-          />
-
-          <SuggestionsToRemove
-            items={deadSuggestions}
-            loading={loadingSuggestions}
-            onPause={onPauseDeadChannel}
-            onRemove={onRemoveDeadChannel}
-          />
-        </div>
-      )}
     </div>
-  );
-}
-
-function SuggestionsToMonitor({
-  items,
-  loading,
-  onAdd,
-}: {
-  items: MonitorSuggestion[] | null;
-  loading: boolean;
-  onAdd: (s: MonitorSuggestion) => void;
-}) {
-  return (
-    <section className="card">
-      <header style={{ marginBottom: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>
-          Recomendados para monitorar{" "}
-          <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>
-            (canais novos com VPD alto ou Canal Viral, ainda fora do monitoramento)
-          </span>
-        </h3>
-      </header>
-      {loading && items === null ? (
-        <div className="muted" style={{ fontSize: 12 }}>carregando…</div>
-      ) : !items || items.length === 0 ? (
-        <div className="muted" style={{ fontSize: 12 }}>
-          nenhuma recomendação no momento — aguarde a descoberta automática
-          encontrar canais novos.
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Canal</th>
-                <th style={{ textAlign: "right" }}>Inscritos</th>
-                <th style={{ textAlign: "right" }}>VPD recente</th>
-                <th style={{ textAlign: "right" }}>Top vídeo</th>
-                <th>Por que</th>
-                <th style={{ width: 140 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((s) => (
-                <tr key={s.youtube_channel_id}>
-                  <td>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <ChannelAvatar url={s.thumbnail_url} title={s.title} size={32} />
-                      <div style={{ minWidth: 0 }}>
-                        <a href={s.url ?? "#"} target="_blank" rel="noreferrer">
-                          {s.title}
-                        </a>
-                        <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
-                          {s.suggestion_kind === "early_breakout"
-                            ? "Canal Viral"
-                            : s.suggestion_kind === "mixed"
-                            ? "Canal Viral + VPD alto"
-                            : "canal jovem com VPD alto"}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {s.subscribers != null ? s.subscribers.toLocaleString("pt-BR") : "—"}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {s.avg_vpd_recent != null
-                        ? Math.round(s.avg_vpd_recent).toLocaleString("pt-BR")
-                        : "—"}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {s.top_video_url ? (
-                      <a href={s.top_video_url} target="_blank" rel="noreferrer">
-                        {s.top_video_views != null
-                          ? s.top_video_views.toLocaleString("pt-BR")
-                          : "—"}
-                      </a>
-                    ) : (
-                      (s.top_video_views != null
-                        ? s.top_video_views.toLocaleString("pt-BR")
-                        : "—")
-                    )}
-                    {s.top_video_title && (
-                      <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
-                        {s.top_video_title}
-                      </div>
-                    )}
-                  </td>
-                  <td className="muted" style={{ fontSize: 11 }}>{s.reason}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn-primary"
-                      onClick={() => onAdd(s)}
-                    >
-                      Monitorar
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
-  );
-}
-
-function SuggestionsToRemove({
-  items,
-  loading,
-  onPause,
-  onRemove,
-}: {
-  items: DeadChannelSuggestion[] | null;
-  loading: boolean;
-  onPause: (s: DeadChannelSuggestion) => void;
-  onRemove: (s: DeadChannelSuggestion) => void;
-}) {
-  return (
-    <section className="card">
-      <header style={{ marginBottom: 10 }}>
-        <h3 style={{ margin: 0, fontSize: 14 }}>
-          Possivelmente mortos — sugeridos para pausar/remover{" "}
-          <span className="muted" style={{ fontWeight: 400, fontSize: 11 }}>
-            (sem uploads recentes, VPD baixo e sinal estagnado)
-          </span>
-        </h3>
-      </header>
-      {loading && items === null ? (
-        <div className="muted" style={{ fontSize: 12 }}>carregando…</div>
-      ) : !items || items.length === 0 ? (
-        <div className="muted" style={{ fontSize: 12 }}>
-          nenhum canal monitorado bate todos os critérios de "morto" no momento.
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Canal</th>
-                <th style={{ textAlign: "right" }}>Dias sem upload</th>
-                <th style={{ textAlign: "right" }}>VPD recente</th>
-                <th>Sinal</th>
-                <th>Por que</th>
-                <th style={{ width: 200 }}></th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((s) => (
-                <tr key={s.channel_id}>
-                  <td>
-                    <a href={s.url ?? "#"} target="_blank" rel="noreferrer">
-                      {s.title}
-                    </a>
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {s.days_since_last_upload ?? "—"}
-                  </td>
-                  <td style={{ textAlign: "right" }}>
-                    {s.avg_vpd_recent != null
-                      ? Math.round(s.avg_vpd_recent).toLocaleString("pt-BR")
-                      : "—"}
-                  </td>
-                  <td className="muted" style={{ fontSize: 11 }}>
-                    {s.signal ?? "—"}
-                  </td>
-                  <td className="muted" style={{ fontSize: 11 }}>{s.reason}</td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => onPause(s)}
-                      >
-                        Pausar
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost danger"
-                        onClick={() => onRemove(s)}
-                      >
-                        Remover
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </section>
   );
 }
 

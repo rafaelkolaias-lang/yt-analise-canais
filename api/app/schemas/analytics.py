@@ -69,6 +69,9 @@ class ChannelBasic(BaseModel):
     title: str
     url: Optional[str] = None
     thumbnail_url: Optional[str] = None
+    # Estado do alerta de pico — permite o sino no card do Analytics.
+    spike_alert_enabled: bool = False
+    spike_alert_multiplier: float = 2.0
 
 
 class ChannelAnalyticsBundle(BaseModel):

@@ -93,6 +93,26 @@ Backend:
 
 > Pendência conhecida: aba Monitoramento → Sugestões "para monitorar" tem N+1 (`_best_discovery_video_for_channel` por canal) — funciona mas é lento; otimizar em lote.
 
+## Atualizações recentes (2026-07-22) — Login + Alerta de pico de views
+
+**Autenticação (login nativo, opção B):**
+- Tabelas `users` + `auth_sessions` (migration `c9d1e3f5a7b2`). Senha PBKDF2-HMAC-SHA256 e sessão por token opaco (SHA-256 no banco) — tudo stdlib, sem dependência nova. Ver `api/app/core/security.py` e `api/app/services/auth_service.py`.
+- Rotas `POST /api/auth/login` (client `web`=30d, `desktop`=365d), `GET /api/auth/me`, `POST /api/auth/logout`, `POST /api/auth/change-password` (revoga as outras sessões). Router: `api/app/routers/auth.py`.
+- **Toda a API de dados exige `Authorization: Bearer`** — aplicado em `main.py` via `dependencies=[Depends(require_auth)]` (`api/app/core/auth.py`). Abertos: `/`, `/api/version`, `/health*`, `/api/auth/login`, `/docs`.
+- Usuário inicial: `python -m app.seed` cria **admin/admin** se a tabela `users` estiver vazia (`auth_service.ensure_default_admin`) — trocar a senha em Configurações (card `ChangePasswordCard`).
+- Web: token em **localStorage + cookie `auth_token`** (`web/lib/authToken.ts`). Fetches client anexam Bearer e 401 redireciona pro `/login` (`web/lib/api.ts`). Páginas SSR usam `web/lib/serverApi.ts` (lê o cookie via `next/headers`). `web/middleware.ts` redireciona página sem cookie pro `/login`. `/login` fica fora do shell (`web/components/AppShell.tsx` — sidebar/notificações só quando logado). Logout na sidebar.
+
+**Alerta de pico de views (por canal, multiplicador X):**
+- Colunas em `channels`: `spike_alert_enabled` (default false), `spike_alert_multiplier` (default 2.0), `spike_last_alert_at` (migration `f4a6b8c0d2e4`).
+- Regra em `api/app/services/spike_alert_service.py`: ganho de views das últimas ~24h (snapshot mais próximo de 24h atrás, tolerância 12–48h) >= multiplicador × média diária dos ~7 dias anteriores (span mínimo 3 dias; piso de 100 views/dia na média; cooldown 24h/canal). Chamado no loop de canais do `run_sync` via `safe_check_channel` (nunca derruba o sync).
+- Dispara Notification `type="view_spike"` (row nova por evento) com `metadata.link = /analytics?q=<canal>`.
+- Endpoint `PATCH /api/monitoring/channels/{id}/spike-alert` (`{enabled?, multiplier?}`).
+- Web: sino 🔔 + campo do multiplicador por canal no Monitoramento (`web/components/SpikeAlertControl.tsx`, tabela e mobile); card na central com "Ver no Analytics →"; `NotificationsCenter` agora faz polling da LISTA em background e dispara **notificação de navegador** para `view_spike` novos; `/analytics?q=` pré-preenche a busca (deep-link).
+
+**Notificador do Windows (`windows-notifier/`):**
+- `notifier.py` (Python stdlib puro): roda em background (`pythonw`), login uma vez (client `desktop`, token salvo em `%APPDATA%\RK-YT-Notifier\config.json`), polling 60s de `/api/notifications`, popup custom tkinter no canto inferior direito pra cada `view_spike` novo — clique abre `site_url + metadata.link`. Âncora `last_seen_id` evita re-notificar picos antigos. Ver `windows-notifier/README.md`.
+- **Autostart**: após o primeiro login, registra sozinho em `HKCU\...\Run` (winreg). **Configurações** (⚙ no popup ou `configurar-notificador.bat` / `--config`): liga/desliga autostart, URLs, sair da conta, encerrar. Instância única via bind na porta local 47653.
+
 ## Stack
 
 | Camada | Tecnologia |
@@ -410,6 +430,9 @@ Migrations atuais no projeto:
 - `d6df02f56387_add_channel_published_at.py`
 - `1f7c9e4b2d11_add_discovery_thumbnails_and_video_unavailable.py`
 - `a1c5e9d8b3f0_add_notifications_table.py`
+- `b2e7f1a4c9d2_add_filter_indexes.py`
+- `c9d1e3f5a7b2_add_users_and_auth_sessions.py`
+- `f4a6b8c0d2e4_add_channel_spike_alert.py`
 
 Lembrete operacional de produção:
 
@@ -461,6 +484,10 @@ Checklist padrão depois de subir a API:
 - `GlobalSyncIndicator` faz polling periódico de `/api/sync/status`.
 - O frontend principal usa `api.ts` como contrato central; mudanças de schema pedem ajuste ali.
 - Se mexer em Analytics ou Sugestões, use os arquivos `_v2`, não tente recriar os antigos.
+- **API exige Bearer token** desde 2026-07-22 — testes via curl precisam de `POST /api/auth/login` antes. Rotas novas entram protegidas automaticamente se incluídas com `dependencies=_protected` no `main.py`; NÃO incluir router de dados sem isso.
+- Página SSR nova deve buscar dados com `lib/serverApi.ts` (cookie), NUNCA `lib/api.ts` (localStorage não existe no servidor).
+- `lib/serverApi.ts` importa `next/headers` — importar ele num componente client quebra o build.
+- Depois do deploy desta leva: `alembic upgrade head` + `python -m app.seed` (cria admin/admin) — sem isso a API sobe mas /login falha.
 
 ## Arquivos que normalmente devem ser lidos antes de alterar algo
 

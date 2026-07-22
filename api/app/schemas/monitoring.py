@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 
 # ---------------------------------------------------------------------------
@@ -19,6 +19,12 @@ class AddVideoRequest(BaseModel):
 
 class StatusUpdateRequest(BaseModel):
     status: Literal["active", "paused", "removed"]
+
+
+class SpikeAlertUpdateRequest(BaseModel):
+    """Liga/desliga o alerta de pico e/ou ajusta o multiplicador (ex.: 2.0 = 2x)."""
+    enabled: Optional[bool] = None
+    multiplier: Optional[float] = Field(default=None, gt=1.0, le=100.0)
 
 
 class ResolveRequest(BaseModel):
@@ -47,6 +53,9 @@ class ChannelRead(BaseModel):
     notes: Optional[str] = None
     is_active: bool
     source: Optional[str] = None
+    spike_alert_enabled: bool = False
+    spike_alert_multiplier: float = 2.0
+    spike_last_alert_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

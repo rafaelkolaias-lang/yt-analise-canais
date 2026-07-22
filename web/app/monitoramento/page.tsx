@@ -1,8 +1,8 @@
 import {
-  apiGet,
   type MonitoredChannel,
   type MonitoredVideo,
 } from "@/lib/api";
+import { serverApiGet } from "@/lib/serverApi";
 
 import { MonitoramentoView } from "./MonitoramentoView";
 
@@ -15,8 +15,8 @@ type LoadResult =
 async function loadAll(): Promise<LoadResult> {
   try {
     const [channels, videos] = await Promise.all([
-      apiGet<MonitoredChannel[]>("/api/monitoring/channels"),
-      apiGet<MonitoredVideo[]>("/api/monitoring/videos"),
+      serverApiGet<MonitoredChannel[]>("/api/monitoring/channels"),
+      serverApiGet<MonitoredVideo[]>("/api/monitoring/videos"),
     ]);
     return { ok: true, channels, videos };
   } catch (e) {

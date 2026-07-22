@@ -1,8 +1,6 @@
 import type { Metadata } from "next";
+import { AppShell } from "@/components/AppShell";
 import { ConfirmProvider } from "@/components/ConfirmDialog";
-import { GlobalSyncIndicator } from "@/components/GlobalSyncIndicator";
-import { NotificationsCenter } from "@/components/NotificationsCenter";
-import { Sidebar } from "@/components/Sidebar";
 import { ToasterProvider } from "@/components/Toaster";
 import { VideoPlayerProvider } from "@/components/VideoPlayerModal";
 import "./globals.css";
@@ -23,14 +21,7 @@ export default function RootLayout({
         <ToasterProvider>
           <ConfirmProvider>
             <VideoPlayerProvider>
-            <div className="app-shell">
-              <Sidebar />
-              <main className="main">
-                <GlobalSyncIndicator />
-                {children}
-              </main>
-            </div>
-            <NotificationsCenter />
+              <AppShell>{children}</AppShell>
             </VideoPlayerProvider>
           </ConfirmProvider>
         </ToasterProvider>

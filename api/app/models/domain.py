@@ -66,6 +66,13 @@ class Channel(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Alerta de pico de views (por canal, ligado manualmente pelo usuário).
+    # Regra: ganho de views nas últimas 24h >= multiplier × média diária dos
+    # 7 dias anteriores. `spike_last_alert_at` implementa cooldown de 24h.
+    spike_alert_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    spike_alert_multiplier: Mapped[float] = mapped_column(Float, nullable=False, default=2.0)
+    spike_last_alert_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
@@ -418,3 +425,54 @@ class Notification(Base):
     )
     read_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
     dismissed_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+
+# =============================================================================
+# Autenticação (usuários + sessões opacas)
+# =============================================================================
+class User(Base):
+    """
+    Usuário do sistema. `password_hash` no formato
+    `pbkdf2_sha256$<iterations>$<salt_b64>$<hash_b64>` (ver core/security.py).
+    """
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    username: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+
+    sessions: Mapped[list["AuthSession"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
+
+
+class AuthSession(Base):
+    """
+    Sessão de login com token opaco. O token em claro NUNCA é persistido —
+    só o SHA-256 dele (`token_hash`). `client` distingue "web" de "desktop"
+    (o desktop ganha expiração mais longa pra não pedir login toda hora).
+    """
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        Index("ix_auth_sessions_user_id", "user_id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    client: Mapped[str] = mapped_column(String(32), nullable=False, default="web")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime)
+
+    user: Mapped["User"] = relationship(back_populates="sessions")

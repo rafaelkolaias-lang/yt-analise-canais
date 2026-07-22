@@ -2,13 +2,15 @@ import logging
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.core import scheduler
+from app.core.auth import require_auth
 from app.core.config import get_settings
 from app.routers import (
     analytics,
+    auth as auth_router,
     discovery,
     health,
     monitoring,
@@ -75,14 +77,20 @@ app.include_router(health.router)
 # API (que e onde o NotificationsCenter chama /api/health/ops). Sem isso, o
 # frontend recebia 404 → cards "API degradada" falsamente.
 app.include_router(health.router, prefix="/api")
-app.include_router(settings_router.router)
-app.include_router(discovery.router)
-app.include_router(monitoring.router)
-app.include_router(sync_router.router)
-app.include_router(analytics.router)
-app.include_router(suggestions.router)
-app.include_router(notifications.router)
-app.include_router(youtube_keys.router)
+# Auth fica FORA da proteção global: /login precisa ser acessível deslogado
+# (as demais rotas do router exigem token individualmente).
+app.include_router(auth_router.router)
+
+# Routers de dados exigem Bearer token válido (site, app do Windows e docs).
+_protected = [Depends(require_auth)]
+app.include_router(settings_router.router, dependencies=_protected)
+app.include_router(discovery.router, dependencies=_protected)
+app.include_router(monitoring.router, dependencies=_protected)
+app.include_router(sync_router.router, dependencies=_protected)
+app.include_router(analytics.router, dependencies=_protected)
+app.include_router(suggestions.router, dependencies=_protected)
+app.include_router(notifications.router, dependencies=_protected)
+app.include_router(youtube_keys.router, dependencies=_protected)
 
 
 @app.get("/", tags=["root"])

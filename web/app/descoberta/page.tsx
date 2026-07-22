@@ -1,4 +1,5 @@
-import { apiGet, type DiscoveryDefaults } from "@/lib/api";
+import { type DiscoveryDefaults } from "@/lib/api";
+import { serverApiGet } from "@/lib/serverApi";
 
 import { DescobertaForm } from "./DescobertaForm";
 
@@ -8,7 +9,7 @@ async function loadDefaults(): Promise<
   { ok: true; data: DiscoveryDefaults } | { ok: false; error: string }
 > {
   try {
-    const data = await apiGet<DiscoveryDefaults>("/api/discovery/defaults");
+    const data = await serverApiGet<DiscoveryDefaults>("/api/discovery/defaults");
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };

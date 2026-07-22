@@ -1,5 +1,6 @@
 from app.models.domain import (
     AppSetting,
+    AuthSession,
     Channel,
     ChannelBlacklist,
     ChannelSnapshot,
@@ -11,11 +12,13 @@ from app.models.domain import (
     SyncRun,
     Tag,
     TrackedVideo,
+    User,
     VideoSnapshot,
 )
 
 __all__ = [
     "AppSetting",
+    "AuthSession",
     "Channel",
     "ChannelBlacklist",
     "ChannelSnapshot",
@@ -27,5 +30,6 @@ __all__ = [
     "SyncRun",
     "Tag",
     "TrackedVideo",
+    "User",
     "VideoSnapshot",
 ]

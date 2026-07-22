@@ -1,25 +1,13 @@
-import {
-  API_URL,
-  type NicheRow,
-} from "@/lib/api";
+import { type NicheRow } from "@/lib/api";
+import { serverApiGetOrNull } from "@/lib/serverApi";
 
 import { AnalyticsView } from "./AnalyticsView";
 
 export const dynamic = "force-dynamic";
 
-async function fetchJSON<T>(path: string): Promise<T | null> {
-  try {
-    const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
 export default async function AnalyticsPage() {
   // O overview agora é buscado no client porque depende do filtro de status.
-  const niches = await fetchJSON<NicheRow[]>("/api/analytics/niches");
+  const niches = await serverApiGetOrNull<NicheRow[]>("/api/analytics/niches");
 
   return (
     <>

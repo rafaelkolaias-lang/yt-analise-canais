@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { QuotaSidebarWidget } from "@/components/QuotaSidebarWidget";
+import { apiPost } from "@/lib/api";
+import { clearToken } from "@/lib/authToken";
 
 const items = [
   { href: "/", label: "Dashboard" },
@@ -86,6 +88,32 @@ export function Sidebar() {
           })}
         </nav>
         <QuotaSidebarWidget />
+        <button
+          type="button"
+          className="muted"
+          style={{
+            marginTop: 12,
+            background: "none",
+            border: "1px solid var(--border)",
+            borderRadius: 8,
+            padding: "6px 10px",
+            fontSize: 12,
+            cursor: "pointer",
+            color: "inherit",
+          }}
+          onClick={async () => {
+            // Revoga a sessão no servidor (melhor esforço) e limpa local.
+            try {
+              await apiPost("/api/auth/logout", {});
+            } catch {
+              /* sessão pode já estar inválida — segue o logout local */
+            }
+            clearToken();
+            window.location.href = "/login";
+          }}
+        >
+          Sair
+        </button>
       </aside>
     </>
   );

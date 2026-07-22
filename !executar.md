@@ -5,6 +5,39 @@
 
 ---
 
+## ✅ 3. Sistema de login nativo (site + API + app Windows)
+
+Status: CONCLUÍDO (Claude 1, 22/07/2026 — aguardando deploy: migration + seed)
+
+Solicitacao:
+- Proteger o site e a API com login proprio (opcao B escolhida pelo usuario; sem modelo cronometro-web).
+- O programa do Windows tambem loga, mas salva o login no PC para nao pedir toda hora.
+
+Solução aplicada:
+- Migration `c9d1e3f5a7b2`: tabelas `users` e `auth_sessions` (token opaco com SHA-256 no banco; sessao web=30d, desktop=365d).
+- `api/app/core/security.py` (PBKDF2 stdlib) + `api/app/services/auth_service.py` + `api/app/routers/auth.py` (`/api/auth/login|logout|me|change-password`).
+- Protecao global por Bearer em `main.py` (`core/auth.require_auth`); abertas só `/`, `/api/version`, `/health*`, `/api/auth/login`.
+- `python -m app.seed` cria `admin`/`admin` se nao houver usuarios (TROCAR a senha em Configuracoes).
+- Web: `/login` (fora do shell via `AppShell`), token em localStorage+cookie (`lib/authToken.ts`), Bearer automatico + redirect em 401 (`lib/api.ts`), SSR via `lib/serverApi.ts`, guard de paginas em `web/middleware.ts`, logout na sidebar, card de troca de senha em Configuracoes.
+- Validado: `compileall` OK, `npm run build` OK.
+
+## ✅ 4. Alerta de pico de views por canal (multiplicador) + programa Windows
+
+Status: CONCLUÍDO (Claude 1, 22/07/2026 — aguardando deploy: migration + seed)
+
+Solicitacao:
+- Por canal: ligar/desligar alerta e definir multiplicador (ex.: 1.5x, 2x, 3x) manualmente.
+- Regra: ganho de views das ultimas 24h >= multiplicador x media diaria dos 7 dias anteriores do proprio canal.
+- Notificacao na central do site + notificacao de navegador; programa do Windows (popup custom) para quando nao estiver no site — popup clicavel abre o Analytics direto no canal.
+
+Solução aplicada:
+- Migration `f4a6b8c0d2e4`: colunas `spike_alert_enabled` / `spike_alert_multiplier` (default 2.0) / `spike_last_alert_at` em `channels`.
+- `api/app/services/spike_alert_service.py`: regra 24h vs media 7d (tolerancia 12–48h no ponto de 24h, span minimo 3d, piso 100 views/dia, cooldown 24h). Chamado por canal dentro do `run_sync` (tolerante a falha).
+- Notification `type=view_spike` com `metadata.link=/analytics?q=<canal>`; endpoint `PATCH /api/monitoring/channels/{id}/spike-alert`.
+- Web: `SpikeAlertControl` (sino + multiplicador) na tabela e nos cards mobile do Monitoramento; card "Ver no Analytics →" na central; notificacao de navegador para picos novos (polling de fundo no `NotificationsCenter`); `/analytics?q=` pre-preenche a busca.
+- Programa Windows: `windows-notifier/notifier.py` (stdlib puro: popup tkinter custom canto inferior direito, clique abre o Analytics no canal, login salvo em `%APPDATA%\RK-YT-Notifier\config.json`, polling 60s, ancora `last_seen_id`). `iniciar-notificador.bat` + `README.md` com autostart opcional.
+- Validado: `compileall` OK (api + notifier), `npm run build` OK.
+
 ## ✅ 1. Criar Analytics de videos monitorados organizado por canal
 
 Status: CONCLUÍDO

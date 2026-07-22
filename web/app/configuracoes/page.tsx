@@ -1,5 +1,7 @@
-import { apiGet, type AppSetting } from "@/lib/api";
+import { type AppSetting } from "@/lib/api";
+import { serverApiGet } from "@/lib/serverApi";
 
+import { ChangePasswordCard } from "@/components/ChangePasswordCard";
 import { ConfiguracoesForm } from "./ConfiguracoesForm";
 
 export const dynamic = "force-dynamic";
@@ -8,7 +10,7 @@ async function loadSettings(): Promise<
   { ok: true; data: AppSetting[] } | { ok: false; error: string }
 > {
   try {
-    const data = await apiGet<AppSetting[]>("/api/settings");
+    const data = await serverApiGet<AppSetting[]>("/api/settings");
     return { ok: true, data };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : String(e) };
@@ -28,6 +30,8 @@ export default async function ConfiguracoesPage() {
           cifradas no banco e nunca retornam em texto plano.
         </p>
       </header>
+
+      <ChangePasswordCard />
 
       {result.ok ? (
         <ConfiguracoesForm initial={result.data} />

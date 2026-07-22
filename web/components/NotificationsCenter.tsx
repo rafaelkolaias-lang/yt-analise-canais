@@ -9,9 +9,9 @@ import {
   type NotificationItem,
   type NotificationsListResponse,
   type NotificationStatus,
-  type UnreadCountResponse,
   type YouTubeKeysHealth,
 } from "@/lib/api";
+import { useBrowserNotifications } from "@/lib/useBrowserNotifications";
 
 // Polling cadence
 const POLL_FAST_MS = 10_000; // popover aberto
@@ -243,6 +243,17 @@ function NotificationCard({
   const unread = item.read_at == null;
   const accent = STATUS_COLOR[item.status] ?? "var(--text-dim)";
   const isSuggestionsChanged = item.type === "suggestions_changed";
+  const isViewSpike = item.type === "view_spike";
+  // Deep-link do pico: o backend grava `link` no metadata (/analytics?q=...).
+  let spikeLink = "/analytics";
+  if (isViewSpike && item.metadata_json) {
+    try {
+      const meta = JSON.parse(item.metadata_json) as { link?: string };
+      if (meta.link && meta.link.startsWith("/")) spikeLink = meta.link;
+    } catch {
+      /* fallback /analytics */
+    }
+  }
   // Detalhe tecnico (traceback + error_type + repr) so e exposto pra alertas
   // operacionais e erros — em sucesso/progresso/info nao faz sentido. Ainda
   // assim, se houver metadata_json em info, mostramos como fallback.
@@ -287,6 +298,13 @@ function NotificationCard({
                 onClick={(e) => e.stopPropagation()}
               >
                 Ver sugestões →
+              </a>
+            </div>
+          )}
+          {isViewSpike && (
+            <div style={{ marginTop: 6, fontSize: 11 }}>
+              <a href={spikeLink} onClick={(e) => e.stopPropagation()}>
+                Ver no Analytics →
               </a>
             </div>
           )}
@@ -532,8 +550,34 @@ export function NotificationsCenter() {
     [setLocal],
   );
 
-  // Pull notifications + counters quando popover abre, ou pull leve só do counter
-  // quando fechado. Os dois rodam em background continuamente.
+  // Notificação de navegador para picos de views (type="view_spike").
+  // `lastSpikeIdRef === null` na primeira carga: só marca o teto e NÃO notifica
+  // (senão todo F5 re-notificaria picos antigos).
+  const { send: sendBrowserNotification } = useBrowserNotifications();
+  const lastSpikeIdRef = useRef<number | null>(null);
+  const notifySpikes = useCallback(
+    (list: NotificationItem[]) => {
+      const spikes = list.filter((i) => i.type === "view_spike");
+      const maxId = spikes.reduce((m, i) => Math.max(m, i.id), 0);
+      if (lastSpikeIdRef.current === null) {
+        lastSpikeIdRef.current = maxId;
+        return;
+      }
+      const prev = lastSpikeIdRef.current;
+      if (maxId <= prev) return;
+      for (const s of spikes.filter((i) => i.id > prev)) {
+        sendBrowserNotification(s.title, {
+          body: s.message ?? undefined,
+          tag: `view_spike:${s.id}`,
+        });
+      }
+      lastSpikeIdRef.current = maxId;
+    },
+    [sendBrowserNotification],
+  );
+
+  // Pull da lista completa — roda continuamente (mesmo com painel fechado)
+  // porque além do badge ela alimenta a notificação de navegador de picos.
   const loadList = useCallback(async () => {
     try {
       const resp = await apiGet<NotificationsListResponse>(
@@ -541,30 +585,19 @@ export function NotificationsCenter() {
       );
       setItems(resp.items);
       setUnread(resp.unread_count);
+      notifySpikes(resp.items);
       onFeedSuccess();
     } catch (err) {
       onFeedFailure(err);
     }
-  }, [onFeedFailure, onFeedSuccess]);
+  }, [notifySpikes, onFeedFailure, onFeedSuccess]);
 
-  const loadCounter = useCallback(async () => {
-    try {
-      const resp = await apiGet<UnreadCountResponse>(
-        "/api/notifications/unread-count",
-      );
-      setUnread(resp.unread_count);
-      onFeedSuccess();
-    } catch (err) {
-      onFeedFailure(err);
-    }
-  }, [onFeedFailure, onFeedSuccess]);
-
-  // Polling do counter (sempre ativo, mesmo com painel fechado).
+  // Polling de fundo (painel fechado): lista completa a cada 30s.
   useEffect(() => {
-    void loadCounter();
-    const t = setInterval(loadCounter, POLL_SLOW_MS);
+    void loadList();
+    const t = setInterval(loadList, POLL_SLOW_MS);
     return () => clearInterval(t);
-  }, [loadCounter]);
+  }, [loadList]);
 
   // Polling rápido enquanto painel aberto: traz lista completa.
   useEffect(() => {

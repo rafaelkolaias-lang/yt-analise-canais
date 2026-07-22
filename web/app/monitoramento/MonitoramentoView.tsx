@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AddByLinkInput } from "@/components/AddByLinkInput";
 import { ChannelAvatar } from "@/components/ChannelAvatar";
+import { SpikeAlertControl } from "@/components/SpikeAlertControl";
 import { useConfirm } from "@/components/ConfirmDialog";
 import {
   ChannelsFilterBar,
@@ -1100,6 +1101,7 @@ export function MonitoramentoView({
                     </td>
                     <td>
                       <div className="row-actions">
+                        <SpikeAlertControl channel={c} />
                         <button
                           className="btn-primary"
                           disabled={snapState === "loading"}
@@ -1261,6 +1263,7 @@ export function MonitoramentoView({
                       </div>
 
                       <div className="mobile-card-actions">
+                        <SpikeAlertControl channel={c} />
                         <button
                           className="btn-primary"
                           disabled={snapState === "loading"}

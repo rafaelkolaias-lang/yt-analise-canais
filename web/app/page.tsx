@@ -5,20 +5,11 @@ import {
   type MonitoredVideo,
   type SyncStatus,
 } from "@/lib/api";
+import { serverApiGetOrNull as fetchJSON } from "@/lib/serverApi";
 
 import { DashboardSyncPanel } from "./DashboardSyncPanel";
 
 export const dynamic = "force-dynamic";
-
-async function fetchJSON<T>(path: string): Promise<T | null> {
-  try {
-    const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
-    if (!res.ok) return null;
-    return (await res.json()) as T;
-  } catch {
-    return null;
-  }
-}
 
 type HealthInfo = { status: string; app?: string; env?: string };
 type DbHealth = { status: string; db?: string; detail?: string };

@@ -268,8 +268,15 @@ DEFAULT_SETTINGS: list[dict] = [
 
 
 def run() -> None:
+    from app.services import auth_service
+
     db = SessionLocal()
     try:
+        if auth_service.ensure_default_admin(db):
+            print(
+                "Usuário inicial 'admin' criado (senha: 'admin'). "
+                "TROQUE A SENHA em Configurações no primeiro acesso."
+            )
         inserted = 0
         updated_descriptions = 0
         unchanged = 0

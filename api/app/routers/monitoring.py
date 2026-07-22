@@ -18,6 +18,7 @@ from app.schemas.monitoring import (
     ChannelWithStats,
     ResolveRequest,
     ResolveResponse,
+    SpikeAlertUpdateRequest,
     StatusUpdateRequest,
     TrackedVideoRead,
     VideoSnapshotRead,
@@ -113,6 +114,9 @@ def _channel_with_stats(c: Channel, last: ChannelSnapshot | None) -> ChannelWith
         notes=c.notes,
         is_active=c.is_active,
         source=c.source,
+        spike_alert_enabled=c.spike_alert_enabled,
+        spike_alert_multiplier=c.spike_alert_multiplier,
+        spike_last_alert_at=c.spike_last_alert_at,
         created_at=c.created_at,
         updated_at=c.updated_at,
         subscribers=last.subscribers if last else None,
@@ -253,6 +257,27 @@ def update_channel_status(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.patch("/channels/{channel_id}/spike-alert", response_model=ChannelRead)
+def update_channel_spike_alert(
+    channel_id: int, req: SpikeAlertUpdateRequest, db: Session = Depends(get_db)
+) -> ChannelRead:
+    """
+    Configura o alerta de pico de views do canal: `enabled` liga/desliga e
+    `multiplier` define o gatilho (ex.: 2.0 = disparar quando o ganho de views
+    das últimas 24h for 2x a média diária dos 7 dias anteriores).
+    """
+    ch = db.query(Channel).filter_by(id=channel_id).one_or_none()
+    if ch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Canal id={channel_id} não existe.")
+    if req.enabled is not None:
+        ch.spike_alert_enabled = req.enabled
+    if req.multiplier is not None:
+        ch.spike_alert_multiplier = req.multiplier
+    db.commit()
+    db.refresh(ch)
+    return ChannelRead.model_validate(ch)
 
 
 @router.delete("/channels/{channel_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,9 +1,40 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
+// ---------------------------------------------------------------------------
+// Autenticação — todos os fetches client-side anexam o Bearer token salvo
+// pelo /login. Em 401, a sessão morreu (expirou/revogada): limpa e manda pro
+// /login. No servidor (SSR) este módulo não tem token — usar lib/serverApi.
+// ---------------------------------------------------------------------------
+function authHeaders(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const t = window.localStorage.getItem("auth.token");
+    return t ? { Authorization: `Bearer ${t}` } : {};
+  } catch {
+    return {};
+  }
+}
+
+function handleUnauthorized(status: number): void {
+  if (status !== 401 || typeof window === "undefined") return;
+  if (window.location.pathname === "/login") return;
+  try {
+    window.localStorage.removeItem("auth.token");
+  } catch {
+    /* ignore */
+  }
+  document.cookie = "auth_token=; path=/; max-age=0; SameSite=Lax";
+  window.location.href = "/login";
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, { cache: "no-store" });
+  const res = await fetch(`${API_URL}${path}`, {
+    cache: "no-store",
+    headers: authHeaders(),
+  });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     throw new Error(`GET ${path} falhou: ${res.status}`);
   }
   return res.json();
@@ -12,11 +43,12 @@ export async function apiGet<T>(path: string): Promise<T> {
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "PUT",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
     cache: "no-store",
   });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     const text = await res.text().catch(() => "");
     throw new Error(`PUT ${path} falhou: ${res.status} ${text}`);
   }
@@ -26,11 +58,12 @@ export async function apiPut<T>(path: string, body: unknown): Promise<T> {
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
     cache: "no-store",
   });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     const text = await res.text().catch(() => "");
     throw new Error(`POST ${path} falhou: ${res.status} ${text}`);
   }
@@ -40,11 +73,12 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders() },
     body: JSON.stringify(body),
     cache: "no-store",
   });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     const text = await res.text().catch(() => "");
     throw new Error(`PATCH ${path} falhou: ${res.status} ${text}`);
   }
@@ -55,8 +89,10 @@ export async function apiDelete(path: string): Promise<void> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "DELETE",
     cache: "no-store",
+    headers: authHeaders(),
   });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     const text = await res.text().catch(() => "");
     throw new Error(`DELETE ${path} falhou: ${res.status} ${text}`);
   }
@@ -66,13 +102,29 @@ export async function apiDeleteJSON<T>(path: string): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     method: "DELETE",
     cache: "no-store",
+    headers: authHeaders(),
   });
   if (!res.ok) {
+    handleUnauthorized(res.status);
     const text = await res.text().catch(() => "");
     throw new Error(`DELETE ${path} falhou: ${res.status} ${text}`);
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Auth
+// ---------------------------------------------------------------------------
+export type AuthUser = {
+  id: number;
+  username: string;
+};
+
+export type LoginResponse = {
+  token: string;
+  expires_at: string;
+  user: AuthUser;
+};
 
 export type AppSetting = {
   key: string;
@@ -298,6 +350,10 @@ export type MonitoredChannel = {
   notes: string | null;
   is_active: boolean;
   source: string | null;
+  // Alerta de pico de views (por canal)
+  spike_alert_enabled: boolean;
+  spike_alert_multiplier: number;
+  spike_last_alert_at: string | null;
   created_at: string;
   updated_at: string;
   // Estendido com último snapshot (GET /api/monitoring/channels)

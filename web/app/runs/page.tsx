@@ -1,8 +1,8 @@
 import {
-  apiGet,
   type DiscoveryRunWithProgress,
   type SyncRun,
 } from "@/lib/api";
+import { serverApiGet } from "@/lib/serverApi";
 
 import { RunsView } from "./RunsView";
 
@@ -14,8 +14,8 @@ async function loadAll(): Promise<
 > {
   try {
     const [syncRuns, discoveryRuns] = await Promise.all([
-      apiGet<SyncRun[]>("/api/sync/runs"),
-      apiGet<DiscoveryRunWithProgress[]>("/api/discovery/runs"),
+      serverApiGet<SyncRun[]>("/api/sync/runs"),
+      serverApiGet<DiscoveryRunWithProgress[]>("/api/discovery/runs"),
     ]);
     return { ok: true, syncRuns, discoveryRuns };
   } catch (e) {

@@ -128,6 +128,16 @@ export function AnalyticsView({ niches }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
 
+  // Deep-link: /analytics?q=<canal> (usado pelo card de pico de views e pelo
+  // popup do app do Windows) já abre com a busca preenchida e filtrada.
+  useEffect(() => {
+    const initial = new URLSearchParams(window.location.search).get("q");
+    if (initial) {
+      setSearch(initial);
+      setQ(initial);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     async function load() {

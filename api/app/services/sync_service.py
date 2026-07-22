@@ -30,6 +30,7 @@ from app.models import AppSetting, Channel, SyncRun, TrackedVideo
 from app.services import (
     monitoring_service,
     notifications_service,
+    spike_alert_service,
     suggestions_service_v2,
     youtube_client,
 )
@@ -272,6 +273,9 @@ def run_sync(db: Session, sync_type: SyncType = "manual") -> SyncRun:
             try:
                 monitoring_service.snapshot_channel(db, ch.id, client=sync_client)
                 channels_processed += 1
+                # Alerta de pico de views (se o canal tiver ligado). Tolerante
+                # a falha — nunca derruba o sync.
+                spike_alert_service.safe_check_channel(db, ch)
             except monitoring_service.PermanentlyUnavailableError as exc:
                 # Canal indisponível (removido) ou sem conteúdo (pausado) não
                 # conta como "sincronizado" — foi tratado, não atualizado.

@@ -1053,6 +1053,7 @@ export function MonitoramentoView({
                   descKey="last_sync_desc"
                   onChange={(s) => setChannelFilters({ ...channelFilters, sort: s })}
                 />
+                <th style={{ width: 110 }}>Alerta</th>
                 <th style={{ width: 320 }}></th>
               </tr>
             </thead>
@@ -1099,9 +1100,11 @@ export function MonitoramentoView({
                     <td className="muted" style={{ fontSize: 11 }}>
                       {formatDateShort(c.last_snapshot_at)}
                     </td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      <SpikeAlertControl channel={c} />
+                    </td>
                     <td>
                       <div className="row-actions">
-                        <SpikeAlertControl channel={c} />
                         <button
                           className="btn-primary"
                           disabled={snapState === "loading"}
@@ -1130,7 +1133,7 @@ export function MonitoramentoView({
               })}
               {filteredChannels.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="muted" style={{ textAlign: "center", padding: 16 }}>
+                  <td colSpan={9} className="muted" style={{ textAlign: "center", padding: 16 }}>
                     {channels.length === 0 ? (
                       <>
                         nenhum canal monitorado. Cole um link/ID acima ou use a página{" "}

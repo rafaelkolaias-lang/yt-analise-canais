@@ -20,14 +20,17 @@ Rodar com `pythonw notifier.py` (sem janela de console) — ver README.md.
 from __future__ import annotations
 
 import json
+import math
 import os
 import queue
 import socket
+import struct
 import sys
 import threading
 import tkinter as tk
 import urllib.error
 import urllib.request
+import wave
 import webbrowser
 
 try:
@@ -35,12 +38,17 @@ try:
 except ImportError:  # não-Windows (dev) — autostart vira no-op
     winreg = None  # type: ignore[assignment]
 
+try:
+    import winsound
+except ImportError:  # não-Windows (dev) — som vira no-op
+    winsound = None  # type: ignore[assignment]
+
 APP_NAME = "RK-YT-Notifier"
 DEFAULT_API_URL = "https://youtube-analyzer-api.duckdns.org"
 DEFAULT_SITE_URL = "https://youtube-analyzer.duckdns.org"
 
 POLL_SECONDS = 60
-POPUP_SECONDS = 25          # popup fecha sozinho depois disso
+# Popup NÃO fecha sozinho — só no ✕ ou ao clicar (decisão do usuário).
 POPUP_WIDTH = 340
 POPUP_MARGIN = 12
 
@@ -49,6 +57,141 @@ POPUP_MARGIN = 12
 SINGLE_INSTANCE_PORT = 47653
 
 RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+
+# ---------------------------------------------------------------------------
+# Sons estilo game — GERADOS pelo próprio programa (8-bit/arcade).
+# O winsound não controla volume na reprodução, então o volume escolhido é
+# aplicado na GERAÇÃO do WAV (cache em %APPDATA%\RK-YT-Notifier\sounds).
+# Volume 50% = amplitude de referência aprovada pelo usuário; acima disso o
+# ganho satura de leve (clipping), o que deixa o som perceptivelmente mais alto.
+# ---------------------------------------------------------------------------
+SOUND_CHOICES: list[tuple[str, str]] = [
+    ("Sem som", ""),
+    ("Moeda (Mario)", "moeda"),
+    ("Level up (arpejo)", "levelup"),
+    ("Power-up (varredura)", "powerup"),
+    ("Alerta arcade (3 bips)", "alerta-arcade"),
+    ("Sino arcade", "sino-arcade"),
+    ("Fanfarra curta", "fanfarra"),
+]
+DEFAULT_SOUND = "alerta-arcade"
+DEFAULT_VOLUME = 50  # % — 50 = volume de referência
+_SR = 44100
+
+
+def _sq(f: float, t: float, duty: float = 0.5) -> float:
+    return 1.0 if (f * t) % 1.0 < duty else -1.0
+
+
+def _tri(f: float, t: float) -> float:
+    p = (f * t) % 1.0
+    return 4 * p - 1 if p < 0.5 else 3 - 4 * p
+
+
+def _env(i: int, n: int, attack: float = 0.005) -> float:
+    t = i / _SR
+    total = n / _SR
+    if t < attack:
+        return t / attack
+    return max(0.0, 1.0 - (t - attack) / (total - attack)) ** 1.5
+
+
+def _note(freq: float, dur: float, fn=_sq, duty: float = 0.5) -> list[float]:
+    n = int(_SR * dur)
+    out = []
+    for i in range(n):
+        t = i / _SR
+        v = _sq(freq, t, duty) if fn is _sq else fn(freq, t)
+        out.append(v * _env(i, n))
+    return out
+
+
+def _silence(dur: float) -> list[float]:
+    return [0.0] * int(_SR * dur)
+
+
+def _samples_for(key: str) -> list[float]:
+    if key == "moeda":
+        return _note(987.77, 0.07) + _note(1318.51, 0.45)
+    if key == "levelup":
+        out: list[float] = []
+        for f in (523.25, 659.25, 783.99, 1046.5, 1318.5):
+            out += _note(f, 0.11, duty=0.4)
+        return out
+    if key == "powerup":
+        n = int(_SR * 0.55)
+        out = []
+        for i in range(n):
+            t = i / _SR
+            f = 250 + (1350 - 250) * (t / 0.55) ** 1.4
+            f *= 1.0 + 0.01 * math.sin(2 * math.pi * 35 * t)
+            out.append((1.0 if (f * t) % 1.0 < 0.5 else -1.0) * _env(i, n, 0.01))
+        return out
+    if key == "sino-arcade":
+        n = int(_SR * 0.7)
+        out = []
+        for i in range(n):
+            t = i / _SR
+            v = (
+                0.6 * math.sin(2 * math.pi * 1568 * t)
+                + 0.3 * math.sin(2 * math.pi * 3136 * t)
+                + 0.15 * math.sin(2 * math.pi * 4704 * t)
+            )
+            out.append(v * _env(i, n))
+        return out
+    if key == "fanfarra":
+        def chord(freqs: tuple[float, ...], dur: float) -> list[float]:
+            n = int(_SR * dur)
+            o = []
+            for i in range(n):
+                t = i / _SR
+                v = sum(_sq(f, t, 0.35) for f in freqs) / len(freqs)
+                o.append(0.8 * v * _env(i, n))
+            return o
+
+        return chord((523.25, 659.25, 783.99), 0.16) + chord((698.46, 880.0, 1046.5), 0.4)
+    # default: alerta-arcade (3 bips E6 em onda triangular)
+    out = []
+    for _ in range(3):
+        out += _note(1318.5, 0.12, fn=_tri) + _silence(0.07)
+    return out
+
+
+def sound_wav_path(key: str, volume_pct: int) -> str:
+    """Garante o WAV do som `key` no volume dado (gera 1x e cacheia)."""
+    pct = max(5, min(100, int(volume_pct or DEFAULT_VOLUME)))
+    folder = os.path.join(os.path.dirname(config_path()), "sounds")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, f"{key}-{pct}.wav")
+    if os.path.exists(path):
+        return path
+    gain = 0.9 * (pct / 50.0)
+    frames = b"".join(
+        struct.pack("<h", int(32767 * max(-1.0, min(1.0, gain * s))))
+        for s in _samples_for(key)
+    )
+    with wave.open(path, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(_SR)
+        w.writeframes(frames)
+    return path
+
+
+def play_sound(cfg: dict) -> None:
+    """Toca o som configurado (assíncrono, não trava a UI). '' = mudo."""
+    if winsound is None:
+        return
+    key = cfg.get("sound", DEFAULT_SOUND)
+    if not key:
+        return
+    if key.endswith(".wav"):  # config antiga (sons do sistema) → migra
+        key = DEFAULT_SOUND
+    try:
+        path = sound_wav_path(key, cfg.get("volume", DEFAULT_VOLUME))
+        winsound.PlaySound(path, winsound.SND_FILENAME | winsound.SND_ASYNC)
+    except Exception:  # noqa: BLE001 — som é cosmético, nunca derruba o app
+        pass
 
 BG = "#141a24"
 FG = "#e8edf5"
@@ -193,16 +336,17 @@ class PopupStack:
         self.popups: list[tk.Toplevel] = []
 
     def _relayout(self) -> None:
-        sh = self.root.winfo_screenheight()
+        # Canto SUPERIOR direito; o popup mais novo fica no topo e os demais
+        # descem na pilha.
         sw = self.root.winfo_screenwidth()
-        y = sh - 48  # folga pra barra de tarefas
+        y = POPUP_MARGIN
         for win in self.popups:
             if not win.winfo_exists():
                 continue
             win.update_idletasks()
             h = win.winfo_reqheight()
-            y -= h + POPUP_MARGIN
             win.geometry(f"{POPUP_WIDTH}x{h}+{sw - POPUP_WIDTH - POPUP_MARGIN}+{y}")
+            y += h + POPUP_MARGIN
 
     def show(self, title: str, message: str, link_url: str | None) -> None:
         win = tk.Toplevel(self.root)
@@ -259,7 +403,6 @@ class PopupStack:
 
         self.popups.insert(0, win)
         self._relayout()
-        win.after(POPUP_SECONDS * 1000, lambda: self._close(win))
 
     def _close(self, win: tk.Toplevel) -> None:
         if win in self.popups:
@@ -389,11 +532,44 @@ class SettingsDialog(tk.Toplevel):
         self.site_entry.insert(0, cfg.get("site_url", DEFAULT_SITE_URL))
         self.site_entry.grid(row=3, column=1, pady=3)
 
+        # Som do alerta
+        tk.Label(self, text="Som", bg=BG, fg=MUTED, font=("Segoe UI", 9)).grid(
+            row=4, column=0, sticky="w"
+        )
+        current_file = cfg.get("sound", DEFAULT_SOUND)
+        current_label = next(
+            (label for label, f in SOUND_CHOICES if f == current_file),
+            SOUND_CHOICES[1][0],
+        )
+        self.sound_var = tk.StringVar(value=current_label)
+        sound_row = tk.Frame(self, bg=BG)
+        sound_row.grid(row=4, column=1, sticky="w", pady=3)
+        menu = tk.OptionMenu(sound_row, self.sound_var, *[l for l, _ in SOUND_CHOICES])
+        menu.configure(bg=BG, fg=FG, activebackground=BG, activeforeground=FG,
+                       highlightthickness=0, font=("Segoe UI", 9))
+        menu.pack(side="left")
+        tk.Button(
+            sound_row, text="▶ Testar", cursor="hand2",
+            command=self.test_sound, bg=BG, fg=MUTED, bd=1,
+            padx=8, pady=2, font=("Segoe UI", 8),
+        ).pack(side="left", padx=(8, 0))
+
+        # Volume do som (50% = volume de referência)
+        tk.Label(self, text="Volume", bg=BG, fg=MUTED, font=("Segoe UI", 9)).grid(
+            row=5, column=0, sticky="w"
+        )
+        self.volume_var = tk.IntVar(value=int(cfg.get("volume", DEFAULT_VOLUME)))
+        tk.Scale(
+            self, from_=5, to=100, resolution=5, orient="horizontal",
+            variable=self.volume_var, bg=BG, fg=FG, troughcolor=BORDER,
+            highlightthickness=0, length=220, font=("Segoe UI", 8),
+        ).grid(row=5, column=1, sticky="w", pady=3)
+
         self.status = tk.Label(self, text="", bg=BG, fg=MUTED, font=("Segoe UI", 8))
-        self.status.grid(row=4, column=0, columnspan=2, sticky="w", pady=(4, 0))
+        self.status.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
 
         btns = tk.Frame(self, bg=BG)
-        btns.grid(row=5, column=0, columnspan=2, sticky="we", pady=(10, 0))
+        btns.grid(row=7, column=0, columnspan=2, sticky="we", pady=(10, 0))
         tk.Button(
             btns, text="Salvar", command=self.save, cursor="hand2",
             bg=ACCENT, fg="#1a1a1a", bd=0, padx=16, pady=4,
@@ -415,12 +591,23 @@ class SettingsDialog(tk.Toplevel):
         w, h = self.winfo_reqwidth(), self.winfo_reqheight()
         self.geometry(f"+{(sw - w) // 2}+{(sh - h) // 2}")
 
+    def _selected_sound_file(self) -> str:
+        label = self.sound_var.get()
+        return next((f for l, f in SOUND_CHOICES if l == label), DEFAULT_SOUND)
+
+    def test_sound(self) -> None:
+        play_sound(
+            {"sound": self._selected_sound_file(), "volume": self.volume_var.get()}
+        )
+
     def save(self) -> None:
         wanted = self.autostart_var.get()
         applied = set_autostart(wanted)
         self.cfg["autostart"] = wanted
         self.cfg["api_url"] = self.api_entry.get().strip() or DEFAULT_API_URL
         self.cfg["site_url"] = self.site_entry.get().strip() or DEFAULT_SITE_URL
+        self.cfg["sound"] = self._selected_sound_file()
+        self.cfg["volume"] = int(self.volume_var.get())
         save_config(self.cfg)
         if wanted and not applied:
             self.status.configure(text="Salvo — mas não consegui registrar o autostart.", fg="#e5534b")
@@ -515,6 +702,8 @@ class NotifierApp:
             (s for s in spikes if int(s["id"]) > last_seen),
             key=lambda s: int(s["id"]),
         )
+        if new_items:
+            play_sound(self.cfg)
         for s in new_items[-3:]:  # no máximo 3 popups por rodada
             meta = {}
             try:

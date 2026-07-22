@@ -12,7 +12,10 @@ Clicar no popup abre o **Analytics do site já filtrado naquele canal**.
 - **Inicia junto com o Windows automaticamente** após o primeiro login
   (registro Run do usuário — pode desligar nas Configurações).
 - Instância única: abrir duas vezes não duplica popups.
-- Consulta a API a cada 60 segundos. Popups fecham sozinhos em ~25s.
+- Consulta a API a cada 60 segundos. O popup **fica na tela até você fechar**
+  (✕) ou clicar nele — não some sozinho.
+- **Som estilo game** ao chegar alerta (padrão: "Alerta arcade", 3 bips).
+  Som e volume configuráveis (50% = volume de referência).
 
 ## Como usar
 
@@ -32,6 +35,8 @@ Na janela dá pra:
 
 - Ligar/desligar **"Iniciar junto com o Windows"**;
 - Ajustar as URLs da **API** e do **site**;
+- Escolher o **som** do alerta (estilo game: moeda, level up, power-up,
+  alerta arcade, sino, fanfarra — ou sem som) e o **volume** (5–100%);
 - **Sair da conta** (apaga o token — pede login de novo);
 - **Encerrar o notificador**.
 
@@ -47,4 +52,5 @@ Tarefas → `pythonw.exe` → Finalizar tarefa.
 - `api_url` — default `https://youtube-analyzer-api.duckdns.org`
 - `site_url` — default `https://youtube-analyzer.duckdns.org`
 - `autostart` — preferência de iniciar com o Windows
+- `sound` / `volume` — som do alerta (gerado em `sounds\` ao lado do config)
 - `token` / `last_seen_id` — gerenciados automaticamente (não mexer).

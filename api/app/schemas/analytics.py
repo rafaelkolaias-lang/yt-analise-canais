@@ -72,6 +72,9 @@ class ChannelBasic(BaseModel):
     # Estado do alerta de pico — permite o sino no card do Analytics.
     spike_alert_enabled: bool = False
     spike_alert_multiplier: float = 2.0
+    # Metadados do usuário — estrela e observação também no Analytics.
+    is_favorite: bool = False
+    notes: Optional[str] = None
 
 
 class ChannelAnalyticsBundle(BaseModel):

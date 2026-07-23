@@ -66,6 +66,10 @@ class Channel(Base):
 
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
+    # Favorito do usuário (estrela no Monitoramento). A observação/nota livre
+    # do usuário reusa a coluna `notes` acima.
+    is_favorite: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
     # Alerta de pico de views (por canal, ligado manualmente pelo usuário).
     # Regra: ganho de views nas últimas 24h >= multiplier × média diária dos
     # 7 dias anteriores. `spike_last_alert_at` implementa cooldown de 24h.

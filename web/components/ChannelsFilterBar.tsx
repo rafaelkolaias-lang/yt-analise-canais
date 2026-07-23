@@ -308,7 +308,12 @@ export function applyChannelFilters(
   });
 
   filtered = sortChannels(filtered, f.sort);
-  return filtered;
+  // Favoritos (estrela) sempre no topo, preservando a ordenação escolhida
+  // dentro de cada grupo.
+  return [
+    ...filtered.filter((c) => c.is_favorite),
+    ...filtered.filter((c) => !c.is_favorite),
+  ];
 }
 
 function sortChannels(

@@ -69,10 +69,17 @@ def list_monitor_suggestions(db: Session, limit: int = 100) -> list[dict]:
         .all()
     )
 
+    # Melhor vídeo de TODOS os canais numa query só (window function).
+    # A versão antiga consultava por canal (N+1) — com centenas de canais
+    # descobertos a página Sugestões levava ~10s pra abrir.
+    best_by_channel = _best_discovery_videos_by_channel(
+        db, [r.youtube_channel_id for r in rows]
+    )
+
     out: list[dict] = []
     for row in rows:
         age_days = _age_days(row.channel_published_at)
-        best_video = _best_discovery_video_for_channel(db, row.youtube_channel_id)
+        best_video = best_by_channel.get(row.youtube_channel_id)
 
         young_high_vpd = (
             row.avg_vpd_recent is not None
@@ -143,19 +150,38 @@ def list_monitor_suggestions(db: Session, limit: int = 100) -> list[dict]:
     return out[:limit]
 
 
-def _best_discovery_video_for_channel(
-    db: Session, youtube_channel_id: str
-) -> Optional[DiscoveryResultVideo]:
-    return (
-        db.query(DiscoveryResultVideo)
-        .filter(DiscoveryResultVideo.youtube_channel_id == youtube_channel_id)
-        .order_by(
-            desc(DiscoveryResultVideo.views),
-            desc(DiscoveryResultVideo.vpd),
-            desc(DiscoveryResultVideo.captured_at),
+def _best_discovery_videos_by_channel(
+    db: Session, youtube_channel_ids: list[str]
+) -> dict[str, DiscoveryResultVideo]:
+    """
+    Melhor vídeo descoberto de cada canal em UMA query (ROW_NUMBER por canal,
+    mesmo critério da versão antiga por-canal: views > vpd > captured_at).
+    """
+    if not youtube_channel_ids:
+        return {}
+    rn = (
+        func.row_number()
+        .over(
+            partition_by=DiscoveryResultVideo.youtube_channel_id,
+            order_by=(
+                desc(DiscoveryResultVideo.views),
+                desc(DiscoveryResultVideo.vpd),
+                desc(DiscoveryResultVideo.captured_at),
+            ),
         )
-        .first()
+        .label("rn")
     )
+    sub = (
+        db.query(DiscoveryResultVideo.id.label("vid"), rn)
+        .filter(DiscoveryResultVideo.youtube_channel_id.in_(youtube_channel_ids))
+        .subquery()
+    )
+    rows = (
+        db.query(DiscoveryResultVideo)
+        .join(sub, and_(DiscoveryResultVideo.id == sub.c.vid, sub.c.rn == 1))
+        .all()
+    )
+    return {v.youtube_channel_id: v for v in rows}
 
 
 def _age_days(dt: Optional[datetime]) -> int:

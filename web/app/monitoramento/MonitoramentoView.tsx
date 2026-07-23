@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { AddByLinkInput } from "@/components/AddByLinkInput";
 import { ChannelAvatar } from "@/components/ChannelAvatar";
+import { ChannelNote, FavoriteStar } from "@/components/ChannelMetaControls";
 import { SpikeAlertControl } from "@/components/SpikeAlertControl";
 import { useConfirm } from "@/components/ConfirmDialog";
 import {
@@ -181,6 +182,17 @@ export function MonitoramentoView({
 
   const describeError = (e: unknown): string =>
     e instanceof Error ? e.message : String(e);
+
+  // Merge de metadados (estrela/observação) devolvidos pelo PATCH /meta —
+  // preserva os campos de stats que só vêm no GET /channels.
+  const onChannelMetaChanged = (updated: MonitoredChannel) =>
+    setChannels((prev) =>
+      prev.map((c) =>
+        c.id === updated.id
+          ? { ...c, is_favorite: updated.is_favorite, notes: updated.notes }
+          : c
+      )
+    );
 
   // -------------------------------------------------------------------------
   // Canais
@@ -970,18 +982,17 @@ export function MonitoramentoView({
                     <td>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <ChannelAvatar url={c.thumbnail_url} title={c.title} size={36} />
-                        <div style={{ minWidth: 0 }}>
-                          <a href={c.url ?? "#"} target="_blank" rel="noreferrer">
-                            {c.title}
-                          </a>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <FavoriteStar channel={c} onChanged={onChannelMetaChanged} />
+                            <a href={c.url ?? "#"} target="_blank" rel="noreferrer">
+                              {c.title}
+                            </a>
+                          </span>
                           {c.custom_url && (
                             <div className="muted" style={{ fontSize: 10 }}>{c.custom_url}</div>
                           )}
-                          {c.status === "removed" && c.notes && (
-                            <div className="muted" style={{ fontSize: 10, marginTop: 4 }}>
-                              {c.notes}
-                            </div>
-                          )}
+                          <ChannelNote channel={c} onChanged={onChannelMetaChanged} />
                         </div>
                       </div>
                     </td>
@@ -1113,16 +1124,21 @@ export function MonitoramentoView({
                           size={40}
                         />
                         <div className="mobile-card-title">
-                          <a
-                            href={c.url ?? "#"}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {c.title}
-                          </a>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <FavoriteStar channel={c} onChanged={onChannelMetaChanged} />
+                            <a
+                              href={c.url ?? "#"}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              {c.title}
+                            </a>
+                          </span>
                           <StatusPill status={c.status} />
                         </div>
                       </div>
+
+                      <ChannelNote channel={c} onChanged={onChannelMetaChanged} />
 
                       <div className="mobile-card-meta">
                         <div>
@@ -1151,12 +1167,6 @@ export function MonitoramentoView({
                             {formatDateShort(c.last_snapshot_at)}
                           </span>
                         </div>
-                        {c.status === "removed" && c.notes && (
-                          <div style={{ gridColumn: "1 / -1" }}>
-                            <span className="label">Contexto</span>
-                            <span className="value">{c.notes}</span>
-                          </div>
-                        )}
                       </div>
 
                       <div className="mobile-card-actions">

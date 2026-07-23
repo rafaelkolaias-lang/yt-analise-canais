@@ -5,6 +5,24 @@
 
 ---
 
+## ✅ 6. Monitoramento: favorito (estrela) + observação por canal; fix N+1 das Sugestões
+
+Status: CONCLUÍDO (Claude 1, 22/07/2026 — aguardando deploy api+web e `alembic upgrade head`)
+
+Solicitacao:
+- Estrela de favorito por canal no Monitoramento.
+- Campo de observação/nota livre (lembrete do usuario) por canal.
+- (Investigacao) pagina Sugestões demorava ~10s pra abrir.
+
+Solução aplicada:
+- Migration `a8c0d2e4f6b8`: coluna `channels.is_favorite` (bool, default 0). Observação reusa `channels.notes` (sem migration extra).
+- Endpoint `PATCH /api/monitoring/channels/{id}/meta` (`{is_favorite?, notes?}`; notes="" limpa).
+- Web: `ChannelMetaControls.tsx` (`FavoriteStar` ★ + `ChannelNote` com editor inline "+ observação"); integrado na tabela e nos cards mobile do Monitoramento; nota aparece sob o titulo (clicavel pra editar). Favoritos fixados no TOPO da lista em `applyChannelFilters` (preserva ordenacao dentro dos grupos).
+- Fix N+1: `_best_discovery_videos_by_channel` (ROW_NUMBER por canal, 1 query) em `suggestions_service_v2` — `/api/suggestions/to-monitor` caiu de 10,6s pra <1s (medido em producao).
+- Analytics tambem mostra/edita estrela e observação: `is_favorite`+`notes` no payload de `channels_paginated` (`ChannelBasic`), `FavoriteStar` no titulo do card e `ChannelNote` no cabecalho (mesmos componentes, tipo `ChannelMetaShape`).
+- Validado: compileall OK, alembic head unico, `npm run build` OK.
+- Deploy: api + web; rodar `alembic upgrade head` (migration nova).
+
 ## ✅ 5. Sugestões: página própria + candidatos em observação automática
 
 Status: CONCLUÍDO (Claude 1, 22/07/2026 — aguardando deploy api+web e `python -m app.seed`)

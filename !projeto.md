@@ -91,7 +91,7 @@ Backend:
 - **Cota** (`youtube_client.py`): rollover persiste deltas pendentes antes de zerar; método público `flush()`.
 - **Migration `b2e7f1a4c9d2`**: índices em `channels(status)`, `channels(is_active)`, `tracked_videos(status)` — **rodar `alembic upgrade head` após o deploy do -api**.
 
-> Pendência conhecida: aba Monitoramento → Sugestões "para monitorar" tem N+1 (`_best_discovery_video_for_channel` por canal) — funciona mas é lento; otimizar em lote.
+> ~~Pendência: N+1 no "para monitorar"~~ — resolvido em 2026-07-22: `_best_discovery_videos_by_channel` busca o melhor vídeo de todos os canais numa query só (ROW_NUMBER por canal). Página Sugestões caiu de ~10s pra <1s.
 
 ## Atualizações recentes (2026-07-22) — Login + Alerta de pico de views
 
@@ -113,6 +113,10 @@ Backend:
 - `/sugestoes` é página própria (item na sidebar); a aba dentro do Monitoramento foi removida (`?tab=suggestions` redireciona). Central de notificações linka pra `/sugestoes`.
 - **Candidatos**: top sugestões viram `channels.status="candidate"` automaticamente após cada sync (`suggestion_candidates_service.auto_add_from_suggestions`, teto `suggestions.max_candidates`=10, toggle `suggestions.auto_candidates_enabled`). O sync normal snapshotta; a página mostra evolução do VPD (inicial → atual, %). Botões: Monitorar (promote → active) e Dispensar (delete + blacklist `suggestion_dismissed`). Sugestão comum também tem Dispensar (só blacklist).
 - Candidatos são INVISÍVEIS em Monitoramento (`routers/monitoring.list_channels`) e Analytics (`analytics_service_v2._channel_query` exclui `candidate` sempre, até no filtro "all"). `list_dead_suggestions` só olha `status="active"`.
+
+**Monitoramento — favorito + observação (2026-07-22):**
+- `channels.is_favorite` (estrela ★ no Monitoramento, favoritos fixos no topo da lista via `applyChannelFilters`) e observação livre do usuário em `channels.notes` (editor inline `ChannelNote`, "+ observação" sob o título; notes="" limpa). Endpoint `PATCH /api/monitoring/channels/{id}/meta`. Componentes em `web/components/ChannelMetaControls.tsx`.
+- Atenção: `notes` é compartilhado com mensagens do sistema (ex.: auto-pausa de canal vazio escreve contexto ali) — o usuário pode sobrescrever, é aceitável por decisão de simplicidade.
 
 **Notificador do Windows (`windows-notifier/`):**
 - `notifier.py` (Python stdlib puro): roda em background (`pythonw`), login uma vez (client `desktop`, token salvo em `%APPDATA%\RK-YT-Notifier\config.json`), polling 60s de `/api/notifications`, popup custom tkinter no canto inferior direito pra cada `view_spike` novo — clique abre `site_url + metadata.link`. Âncora `last_seen_id` evita re-notificar picos antigos. Ver `windows-notifier/README.md`.
@@ -438,6 +442,7 @@ Migrations atuais no projeto:
 - `b2e7f1a4c9d2_add_filter_indexes.py`
 - `c9d1e3f5a7b2_add_users_and_auth_sessions.py`
 - `f4a6b8c0d2e4_add_channel_spike_alert.py`
+- `a8c0d2e4f6b8_add_channel_is_favorite.py`
 
 Lembrete operacional de produção:
 

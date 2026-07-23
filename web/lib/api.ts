@@ -367,6 +367,8 @@ export type MonitoredChannel = {
   notes: string | null;
   is_active: boolean;
   source: string | null;
+  // Estrela de favorito do usuário
+  is_favorite: boolean;
   // Alerta de pico de views (por canal)
   spike_alert_enabled: boolean;
   spike_alert_multiplier: number;
@@ -562,6 +564,9 @@ export type ChannelAnalyticsBasic = {
   // Estado do alerta de pico — permite o sino no card do Analytics.
   spike_alert_enabled: boolean;
   spike_alert_multiplier: number;
+  // Metadados do usuário — estrela e observação também no Analytics.
+  is_favorite: boolean;
+  notes: string | null;
 };
 
 export type ChannelAnalyticsBundle = {

@@ -15,6 +15,7 @@ from app.schemas.monitoring import (
     BulkStatusRequest,
     ChannelRead,
     ChannelSnapshotRead,
+    ChannelMetaUpdateRequest,
     ChannelWithStats,
     ResolveRequest,
     ResolveResponse,
@@ -114,6 +115,7 @@ def _channel_with_stats(c: Channel, last: ChannelSnapshot | None) -> ChannelWith
         notes=c.notes,
         is_active=c.is_active,
         source=c.source,
+        is_favorite=c.is_favorite,
         spike_alert_enabled=c.spike_alert_enabled,
         spike_alert_multiplier=c.spike_alert_multiplier,
         spike_last_alert_at=c.spike_last_alert_at,
@@ -264,6 +266,26 @@ def update_channel_status(
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+
+@router.patch("/channels/{channel_id}/meta", response_model=ChannelRead)
+def update_channel_meta(
+    channel_id: int, req: ChannelMetaUpdateRequest, db: Session = Depends(get_db)
+) -> ChannelRead:
+    """
+    Metadados do usuário: `is_favorite` (estrela) e `notes` (observação livre —
+    string vazia limpa). Campos omitidos não são alterados.
+    """
+    ch = db.query(Channel).filter_by(id=channel_id).one_or_none()
+    if ch is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=f"Canal id={channel_id} não existe.")
+    if req.is_favorite is not None:
+        ch.is_favorite = req.is_favorite
+    if req.notes is not None:
+        ch.notes = req.notes.strip() or None
+    db.commit()
+    db.refresh(ch)
+    return ChannelRead.model_validate(ch)
 
 
 @router.patch("/channels/{channel_id}/spike-alert", response_model=ChannelRead)

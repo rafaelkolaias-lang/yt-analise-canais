@@ -27,6 +27,13 @@ class SpikeAlertUpdateRequest(BaseModel):
     multiplier: Optional[float] = Field(default=None, gt=1.0, le=100.0)
 
 
+class ChannelMetaUpdateRequest(BaseModel):
+    """Metadados do usuário: estrela de favorito e/ou observação livre."""
+    is_favorite: Optional[bool] = None
+    # None = não mexe; "" = limpa a observação.
+    notes: Optional[str] = Field(default=None, max_length=5000)
+
+
 class ResolveRequest(BaseModel):
     """Input do usuário (link YouTube ou ID puro) que vai virar canal ou vídeo."""
     raw: str
@@ -53,6 +60,7 @@ class ChannelRead(BaseModel):
     notes: Optional[str] = None
     is_active: bool
     source: Optional[str] = None
+    is_favorite: bool = False
     spike_alert_enabled: bool = False
     spike_alert_multiplier: float = 2.0
     spike_last_alert_at: Optional[datetime] = None

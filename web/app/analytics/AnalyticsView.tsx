@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ChannelAvatar } from "@/components/ChannelAvatar";
+import { ChannelNote, FavoriteStar } from "@/components/ChannelMetaControls";
 import { SpikeAlertControl } from "@/components/SpikeAlertControl";
 import { ChannelChart, type ChartBucket } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
@@ -128,6 +129,33 @@ export function AnalyticsView({ niches }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadTick, setReloadTick] = useState(0);
+
+  // Merge de metadados (estrela/observação) devolvidos pelo PATCH /meta no
+  // canal correspondente dentro da página atual.
+  const onChannelMetaChanged = (updated: {
+    id: number;
+    is_favorite: boolean;
+    notes: string | null;
+  }) =>
+    setData((prev) =>
+      prev
+        ? {
+            ...prev,
+            items: prev.items.map((b) =>
+              b.channel.id === updated.id
+                ? {
+                    ...b,
+                    channel: {
+                      ...b.channel,
+                      is_favorite: updated.is_favorite,
+                      notes: updated.notes,
+                    },
+                  }
+                : b
+            ),
+          }
+        : prev
+    );
 
   // Deep-link: /analytics?q=<canal> (usado pelo card de pico de views e pelo
   // popup do app do Windows) já abre com a busca preenchida e filtrada.
@@ -532,7 +560,18 @@ export function AnalyticsView({ niches }: Props) {
                       size={56}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <h3 style={{ margin: 0 }}>
+                      <h3
+                        style={{
+                          margin: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 8,
+                        }}
+                      >
+                        <FavoriteStar
+                          channel={channel}
+                          onChanged={onChannelMetaChanged}
+                        />
                         {channel.url ? (
                           <a href={channel.url} target="_blank" rel="noreferrer">
                             {channel.title}
@@ -556,6 +595,10 @@ export function AnalyticsView({ niches }: Props) {
                         {consistencyLabel(summary?.subscribers_consistency?.label)} · views{" "}
                         {consistencyLabel(summary?.views_consistency?.label)}
                       </div>
+                      <ChannelNote
+                        channel={channel}
+                        onChanged={onChannelMetaChanged}
+                      />
                       {summary?.signal_reason && (
                         <div
                           className="muted"

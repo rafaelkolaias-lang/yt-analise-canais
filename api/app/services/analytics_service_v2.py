@@ -660,6 +660,8 @@ def channels_paginated(
                     "thumbnail_url": channel.thumbnail_url,
                     "spike_alert_enabled": channel.spike_alert_enabled,
                     "spike_alert_multiplier": channel.spike_alert_multiplier,
+                    "is_favorite": channel.is_favorite,
+                    "notes": channel.notes,
                 },
                 "opportunity_score": score_by_channel.get(channel.id, 0),
                 "summary": summary,

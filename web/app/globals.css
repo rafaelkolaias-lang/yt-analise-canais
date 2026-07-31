@@ -453,6 +453,28 @@ a {
   gap: 12px;
 }
 
+/* Layout fixo do Analytics: 3 gráficos na primeira linha (Inscritos, Views,
+   Uploads/sem) e 2 na segunda (VPD do canal, VPD dos últimos 10 uploads),
+   sempre ocupando a largura toda. Em telas estreitas vira coluna única. */
+.analytics-charts-grid.charts-3-2 {
+  grid-template-columns: repeat(6, 1fr);
+}
+.analytics-charts-grid.charts-3-2 > * {
+  grid-column: span 2;
+}
+.analytics-charts-grid.charts-3-2 > *:nth-child(n + 4) {
+  grid-column: span 3;
+}
+@media (max-width: 900px) {
+  .analytics-charts-grid.charts-3-2 {
+    grid-template-columns: 1fr;
+  }
+  .analytics-charts-grid.charts-3-2 > *,
+  .analytics-charts-grid.charts-3-2 > *:nth-child(n + 4) {
+    grid-column: auto;
+  }
+}
+
 .analytics-chart-box {
   background: var(--bg);
   border: 1px solid var(--border);

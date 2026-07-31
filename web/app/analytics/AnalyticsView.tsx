@@ -519,7 +519,7 @@ export function AnalyticsView({ niches }: Props) {
                 </div>
                 <Skeleton width={80} height={20} radius={999} />
               </div>
-              <div className="analytics-charts-grid">
+              <div className="analytics-charts-grid charts-3-2">
                 {[0, 1, 2, 3, 4].map((i) => (
                   <div key={i} className="analytics-chart-box">
                     <Skeleton width="40%" height={11} />
@@ -653,7 +653,14 @@ export function AnalyticsView({ niches }: Props) {
                   </div>
                 </div>
 
-                <div className="analytics-charts-grid">
+                <div className="analytics-charts-grid charts-3-2">
+                  <ChannelChart
+                    title="Inscritos"
+                    data={subscribers_series}
+                    color="#2dd4bf"
+                    bucket={chartBucket}
+                    aggregation="last"
+                  />
                   <ChannelChart
                     title="Views totais"
                     data={views_series}
@@ -661,11 +668,13 @@ export function AnalyticsView({ niches }: Props) {
                     aggregation="last"
                   />
                   <ChannelChart
-                    title="Inscritos"
-                    data={subscribers_series}
-                    color="#2dd4bf"
+                    title="Uploads/semana"
+                    data={uploads_series}
+                    kind="bar"
+                    color="#a78bfa"
+                    formatValue={(v) => v.toFixed(1)}
                     bucket={chartBucket}
-                    aggregation="last"
+                    aggregation="avg"
                   />
                   <ChannelChart
                     title="VPD do canal"
@@ -678,15 +687,6 @@ export function AnalyticsView({ niches }: Props) {
                     title="VPD dos últimos 10 uploads"
                     data={vpd_series}
                     color="#f59e0b"
-                    bucket={chartBucket}
-                    aggregation="avg"
-                  />
-                  <ChannelChart
-                    title="Uploads/semana"
-                    data={uploads_series}
-                    kind="bar"
-                    color="#a78bfa"
-                    formatValue={(v) => v.toFixed(1)}
                     bucket={chartBucket}
                     aggregation="avg"
                   />

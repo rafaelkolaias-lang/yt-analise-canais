@@ -136,6 +136,15 @@ def check_channel(db: Session, channel: Channel) -> Optional[dict]:
 
     baseline_span_days = (base24.captured_at - old.captured_at).total_seconds() / 86400.0
     baseline_daily = ((base24.views_total or 0) - (old.views_total or 0)) / baseline_span_days
+
+    # Média negativa ou zero = canal PERDEU views na janela (vídeos apagados/
+    # privados, limpeza do YouTube). Não há base honesta de comparação — sem
+    # ela o piso de 100 viraria divisor fictício e qualquer ganho normal
+    # dispararia como "milhares de x" (alerta falso). Nesse caso, não dispara.
+    if baseline_daily <= 0:
+        return None
+
+    # Piso só pro caso original: canal parado com média positiva minúscula.
     baseline_eff = max(baseline_daily, _BASELINE_FLOOR_VPD)
 
     ratio = gain_daily_recent / baseline_eff
@@ -153,6 +162,9 @@ def check_channel(db: Session, channel: Channel) -> Optional[dict]:
         "gain_24h": int(gain_recent),
         "gain_daily_recent": round(gain_daily_recent, 1),
         "baseline_daily": round(baseline_daily, 1),
+        # Média efetivamente usada no ratio (com piso aplicado) — é ela que a
+        # mensagem exibe, senão os números do alerta não fecham entre si.
+        "baseline_used": round(baseline_eff, 1),
         # Deep-link consumido pelo card da central e pelo app do Windows.
         "link": f"/analytics?q={quote(channel.title)}",
     }
@@ -165,7 +177,7 @@ def check_channel(db: Session, channel: Channel) -> Optional[dict]:
         message=(
             f"Ganhou {_fmt_int(gain_recent)} views nas últimas 24h — "
             f"{ratio_txt}x a média diária dos 7 dias anteriores "
-            f"({_fmt_int(baseline_daily)} views/dia)."
+            f"({_fmt_int(baseline_eff)} views/dia)."
         ),
         metadata=result,
         # Sem source_key: cada pico é um evento novo (o cooldown segura o volume).

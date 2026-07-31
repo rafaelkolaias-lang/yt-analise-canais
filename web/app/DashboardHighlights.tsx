@@ -83,9 +83,20 @@ function fmtDateTime(s: string | null | undefined): string {
   });
 }
 
-/** Link para a tela de Analytics já filtrada naquele canal (deep-link ?q=). */
-function analyticsLink(title: string): string {
+/** Analytics · Canais já filtrado naquele canal (deep-link ?q=). */
+function channelLink(title: string): string {
   return `/analytics?q=${encodeURIComponent(title)}`;
+}
+
+/**
+ * Analytics · Vídeos por canal já filtrado (deep-link ?q=). Com `videoId`, a
+ * página ainda destaca e rola até aquele vídeo específico (?highlight=).
+ */
+function videoLink(title: string, videoId?: string): string {
+  const q = `q=${encodeURIComponent(title)}`;
+  return videoId
+    ? `/analytics/videos?${q}&highlight=${encodeURIComponent(videoId)}`
+    : `/analytics/videos?${q}`;
 }
 
 export function DashboardHighlights({ overview }: Props) {
@@ -279,13 +290,22 @@ function ChannelsTable({
               <td className="muted" style={{ fontSize: 11, maxWidth: 320 }}>
                 {c.signal_reason ?? "—"}
               </td>
-              <td style={{ textAlign: "right" }}>
+              <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
                 <a
                   className="btn-ghost"
-                  href={analyticsLink(c.title)}
+                  href={channelLink(c.title)}
+                  title={`Abrir ${c.title} no Analytics · Canais`}
                   style={{ textDecoration: "none", fontSize: 11, padding: "4px 8px" }}
                 >
-                  detalhes
+                  gráficos do canal
+                </a>{" "}
+                <a
+                  className="btn-ghost"
+                  href={videoLink(c.title)}
+                  title={`Ver os vídeos de ${c.title} no Analytics`}
+                  style={{ textDecoration: "none", fontSize: 11, padding: "4px 8px" }}
+                >
+                  vídeos
                 </a>
               </td>
             </tr>
@@ -307,6 +327,7 @@ function VideosTable({ rows }: { rows: AnalyticsHighlights["videos"] }) {
           <th style={{ textAlign: "right" }}>VPD anterior</th>
           <th style={{ textAlign: "right" }}>Salto</th>
           <th style={{ textAlign: "right" }}>Views</th>
+          <th />
         </tr>
       </thead>
       <tbody>
@@ -336,7 +357,12 @@ function VideosTable({ rows }: { rows: AnalyticsHighlights["videos"] }) {
               </div>
             </td>
             <td>
-              <a href={analyticsLink(v.channel_title)}>{v.channel_title}</a>
+              <a
+                href={channelLink(v.channel_title)}
+                title={`Abrir ${v.channel_title} no Analytics · Canais`}
+              >
+                {v.channel_title}
+              </a>
             </td>
             <td style={{ textAlign: "right" }}>{fmtNumber(v.vpd_now)}</td>
             <td style={{ textAlign: "right" }}>{fmtNumber(v.vpd_prev)}</td>
@@ -344,6 +370,16 @@ function VideosTable({ rows }: { rows: AnalyticsHighlights["videos"] }) {
               {fmtDelta(v.vpd_delta) ?? "—"}
             </td>
             <td style={{ textAlign: "right" }}>{fmtNumber(v.last_seen_views)}</td>
+            <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+              <a
+                className="btn-ghost"
+                href={videoLink(v.title, v.youtube_video_id)}
+                title="Abrir este vídeo no Analytics · Vídeos por canal"
+                style={{ textDecoration: "none", fontSize: 11, padding: "4px 8px" }}
+              >
+                gráficos do vídeo
+              </a>
+            </td>
           </tr>
         ))}
       </tbody>

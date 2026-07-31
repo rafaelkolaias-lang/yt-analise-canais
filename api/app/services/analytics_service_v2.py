@@ -456,9 +456,12 @@ def uploads_events_series(db: Session, channel_id: int) -> list[dict]:
 
 
 def timeseries(db: Session, channel_id: int, metric: str) -> list[dict]:
-    # Métrica derivada (não é coluna do snapshot): views/dia do canal inteiro.
+    # Métricas derivadas (não são colunas do snapshot): views/dia do canal
+    # inteiro e uploads/semana só nas datas com upload detectado.
     if metric == "channel_vpd":
         return channel_vpd_series(db, channel_id)
+    if metric == "uploads_events":
+        return uploads_events_series(db, channel_id)
     if metric not in ALLOWED_METRICS:
         raise ValueError(f"metric invalida: {metric}")
     col = ALLOWED_METRICS[metric]
@@ -689,10 +692,16 @@ def videos_by_channel(
     page_size: int,
     channel_status: Optional[str] = None,
     q: Optional[str] = None,
+    only_rising: bool = False,
 ) -> dict:
     """
     Lista canais paginada (pelo canal) com seus vídeos monitorados e séries
     temporais. Evita N+1: busca canais, depois vídeos e snapshots em lote.
+
+    `only_rising=True` deixa passar SÓ os vídeos que estão subindo (VPD do
+    último snapshot > penúltimo) — mesma regra do card "Vídeos acelerando" do
+    Dashboard (`_videos_accelerating_rows`). Canais que ficariam sem nenhum
+    vídeo saem da lista, então `total` continua batendo com o que é exibido.
     """
     if page < 1:
         page = 1
@@ -717,6 +726,25 @@ def videos_by_channel(
             or_(Channel.title.ilike(like), Channel.id.in_(vid_channel_ids))
         )
 
+    # Filtro "só os que estão subindo": restringe a paginação aos canais que
+    # têm ao menos um vídeo em alta e guarda os ids pra podar os vídeos depois.
+    rising_ids: Optional[set[int]] = None
+    if only_rising:
+        rising_ids = {r["tracked_video_id"] for r in _videos_accelerating_rows(db)}
+        if not rising_ids:
+            return {
+                "page": page,
+                "page_size": page_size,
+                "total": 0,
+                "total_pages": 0,
+                "items": [],
+            }
+        base = base.filter(
+            Channel.id.in_(
+                select(TrackedVideo.channel_id).where(TrackedVideo.id.in_(rising_ids))
+            )
+        )
+
     total: int = base.count()
     total_pages = (total + page_size - 1) // page_size if total else 0
     offset = (page - 1) * page_size
@@ -732,12 +760,14 @@ def videos_by_channel(
 
     channel_ids = [c.id for c in channels]
 
-    videos = (
-        db.query(TrackedVideo)
-        .filter(TrackedVideo.channel_id.in_(channel_ids))
-        .order_by(TrackedVideo.channel_id, desc(TrackedVideo.last_seen_vpd))
-        .all()
+    videos_query = db.query(TrackedVideo).filter(
+        TrackedVideo.channel_id.in_(channel_ids)
     )
+    if rising_ids is not None:
+        videos_query = videos_query.filter(TrackedVideo.id.in_(rising_ids))
+    videos = videos_query.order_by(
+        TrackedVideo.channel_id, desc(TrackedVideo.last_seen_vpd)
+    ).all()
 
     video_ids = [v.id for v in videos]
     if video_ids:

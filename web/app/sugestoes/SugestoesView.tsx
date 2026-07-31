@@ -46,6 +46,8 @@ type CandidateSeries = {
   vpd: TimeseriesPoint[];
   views: TimeseriesPoint[];
   subs: TimeseriesPoint[];
+  channelVpd: TimeseriesPoint[];
+  uploads: TimeseriesPoint[];
 };
 
 const PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
@@ -68,6 +70,14 @@ export function SugestoesView() {
   const [loading, setLoading] = useState(false);
   // Período padrão dos gráficos ao abrir: 30 dias (igual ao Analytics).
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("30d");
+  // Corte de picos: respeita a mesma preferência salva pelo toggle do
+  // Analytics (não há toggle próprio aqui).
+  const [clampOutliers, setClampOutliers] = useState(true);
+
+  useEffect(() => {
+    const saved = window.localStorage.getItem("analytics_clamp_outliers");
+    if (saved !== null) setClampOutliers(saved === "1");
+  }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -86,12 +96,14 @@ export function SugestoesView() {
       const entries = await Promise.all(
         cand.map(async (c) => {
           const base = `/api/analytics/channels/${c.channel_id}/timeseries`;
-          const [vpd, views, subs] = await Promise.all([
+          const [vpd, views, subs, channelVpd, uploads] = await Promise.all([
             apiGet<TimeseriesPoint[]>(`${base}?metric=avg_vpd_recent`).catch(() => []),
             apiGet<TimeseriesPoint[]>(`${base}?metric=views_total`).catch(() => []),
             apiGet<TimeseriesPoint[]>(`${base}?metric=subscribers`).catch(() => []),
+            apiGet<TimeseriesPoint[]>(`${base}?metric=channel_vpd`).catch(() => []),
+            apiGet<TimeseriesPoint[]>(`${base}?metric=uploads_events`).catch(() => []),
           ]);
-          return [c.channel_id, { vpd, views, subs }] as const;
+          return [c.channel_id, { vpd, views, subs, channelVpd, uploads }] as const;
         })
       );
       setSeriesByChannel(Object.fromEntries(entries));
@@ -360,26 +372,47 @@ export function SugestoesView() {
                 </div>
               </div>
 
-              <div className="analytics-charts-grid">
-                <ChannelChart
-                  title="VPD dos últimos 10 uploads"
-                  data={series?.vpd ?? []}
-                  color="#f59e0b"
-                  period={chartPeriod}
-                  aggregation="avg"
-                />
-                <ChannelChart
-                  title="Views totais"
-                  data={series?.views ?? []}
-                  period={chartPeriod}
-                  aggregation="last"
-                />
+              <div className="analytics-charts-grid charts-3-2">
                 <ChannelChart
                   title="Inscritos"
                   data={series?.subs ?? []}
                   color="#2dd4bf"
                   period={chartPeriod}
                   aggregation="last"
+                  clampOutliers={clampOutliers}
+                />
+                <ChannelChart
+                  title="Views totais"
+                  data={series?.views ?? []}
+                  period={chartPeriod}
+                  aggregation="last"
+                  clampOutliers={clampOutliers}
+                />
+                <ChannelChart
+                  title="Uploads/semana"
+                  data={series?.uploads ?? []}
+                  kind="bar"
+                  color="#a78bfa"
+                  formatValue={(v) => v.toFixed(1)}
+                  period={chartPeriod}
+                  aggregation="avg"
+                  clampOutliers={clampOutliers}
+                />
+                <ChannelChart
+                  title="VPD do canal"
+                  data={series?.channelVpd ?? []}
+                  color="#fb7185"
+                  period={chartPeriod}
+                  aggregation="avg"
+                  clampOutliers={clampOutliers}
+                />
+                <ChannelChart
+                  title="VPD dos últimos 10 uploads"
+                  data={series?.vpd ?? []}
+                  color="#f59e0b"
+                  period={chartPeriod}
+                  aggregation="avg"
+                  clampOutliers={clampOutliers}
                 />
               </div>
             </section>

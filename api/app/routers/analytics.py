@@ -105,9 +105,15 @@ def get_videos_by_channel(
     page_size: int = Query(10, ge=1, le=20),
     channel_status: str = Query("active", pattern=_STATUS_PATTERN),
     q: str = Query("", max_length=200),
+    only_rising: bool = Query(False),
     db: Session = Depends(get_db),
 ) -> PaginatedVideosByChannel:
     data = analytics_service.videos_by_channel(
-        db, page, page_size, channel_status=channel_status, q=q
+        db,
+        page,
+        page_size,
+        channel_status=channel_status,
+        q=q,
+        only_rising=only_rising,
     )
     return PaginatedVideosByChannel(**data)

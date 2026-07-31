@@ -3,6 +3,7 @@ import {
   type AnalyticsOverview,
   type MonitoredChannel,
   type MonitoredVideo,
+  type SyncRun,
   type SyncStatus,
 } from "@/lib/api";
 import { serverApiGetOrNull as fetchJSON } from "@/lib/serverApi";
@@ -16,7 +17,7 @@ type HealthInfo = { status: string; app?: string; env?: string };
 type DbHealth = { status: string; db?: string; detail?: string };
 
 async function loadAll() {
-  const [root, health, db, sync, channels, videos, overview] = await Promise.all([
+  const [root, health, db, sync, channels, videos, overview, runs] = await Promise.all([
     fetchJSON<HealthInfo>("/"),
     fetchJSON<HealthInfo>("/health"),
     fetchJSON<DbHealth>("/health/db"),
@@ -24,12 +25,41 @@ async function loadAll() {
     fetchJSON<MonitoredChannel[]>("/api/monitoring/channels"),
     fetchJSON<MonitoredVideo[]>("/api/monitoring/videos"),
     fetchJSON<AnalyticsOverview>("/api/analytics/overview"),
+    fetchJSON<SyncRun[]>("/api/sync/runs?limit=3"),
   ]);
-  return { root, health, db, sync, channels, videos, overview };
+  return { root, health, db, sync, channels, videos, overview, runs };
+}
+
+function formatRunDT(s: string | null | undefined): string {
+  if (!s) return "—";
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function runDuration(start: string, end: string | null): string {
+  if (!end) return "em andamento";
+  const s = new Date(start).getTime();
+  const e = new Date(end).getTime();
+  if (!Number.isFinite(s) || !Number.isFinite(e)) return "—";
+  const sec = Math.max(0, Math.round((e - s) / 1000));
+  if (sec < 60) return `${sec}s`;
+  return `${Math.floor(sec / 60)}m${sec % 60}s`;
+}
+
+function runPillClass(status: string): string {
+  if (status === "success") return "status-pill";
+  if (status === "partial" || status === "running") return "status-pill warn";
+  return "status-pill danger";
 }
 
 export default async function DashboardPage() {
-  const { health, db, sync, channels, videos, overview } = await loadAll();
+  const { health, db, sync, channels, videos, overview, runs } = await loadAll();
 
   const apiOk = health?.status === "ok";
   const dbOk = db?.status === "ok";
@@ -95,6 +125,56 @@ export default async function DashboardPage() {
             {videos?.filter((v) => v.status === "active").length ?? "—"} ativos
           </div>
         </div>
+      </section>
+
+      {/* Últimos 3 runs de sync — resumo compacto do que a página /runs lista. */}
+      <section className="card" style={{ marginTop: 16 }}>
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 8,
+          }}
+        >
+          <div className="muted">Últimos 3 runs</div>
+          <a href="/runs" style={{ fontSize: 12 }}>
+            ver todos →
+          </a>
+        </div>
+        {runs && runs.length > 0 ? (
+          <div style={{ marginTop: 6 }}>
+            {runs.slice(0, 3).map((r) => (
+              <div
+                key={r.id}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  flexWrap: "wrap",
+                  borderTop: "1px solid var(--border)",
+                  padding: "8px 0",
+                  fontSize: 12,
+                }}
+              >
+                <span className={runPillClass(r.status)} style={{ fontSize: 10 }}>
+                  {r.status}
+                </span>
+                <span>{r.type === "manual" ? "manual" : "automático"}</span>
+                <span className="muted">
+                  {formatRunDT(r.started_at)} · {runDuration(r.started_at, r.finished_at)}
+                </span>
+                <span className="muted" style={{ marginLeft: "auto" }}>
+                  {r.channels_processed} canais · {r.videos_processed} vídeos
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="muted" style={{ fontSize: 12, marginTop: 8 }}>
+            nenhum run registrado ainda
+          </div>
+        )}
       </section>
 
       {/* Cada card abre, logo abaixo, a lista compacta do que ele conta. */}

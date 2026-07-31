@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { ChannelAvatar } from "@/components/ChannelAvatar";
 import { ChannelChart, type ChartPeriod } from "@/components/ChannelChart";
@@ -47,17 +47,42 @@ function fmtDate(iso: string | null | undefined): string {
 function VideoRow({
   video,
   period,
+  highlighted = false,
 }: {
   video: VideoAnalyticsItem;
   period: ChartPeriod;
+  /** Vídeo apontado pelo deep-link `?highlight=` (veio do Dashboard). */
+  highlighted?: boolean;
 }) {
   const isUnavailable = !!video.unavailable_reason;
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Rola até o vídeo destacado. O delay dá tempo dos gráficos montarem —
+  // sem ele a posição calculada muda logo depois e a rolagem erra o alvo.
+  useEffect(() => {
+    if (!highlighted || !ref.current) return;
+    const el = ref.current;
+    const t = setTimeout(
+      () => el.scrollIntoView({ behavior: "smooth", block: "center" }),
+      350
+    );
+    return () => clearTimeout(t);
+  }, [highlighted]);
 
   return (
     <div
+      ref={ref}
       style={{
         borderTop: "1px solid var(--border)",
         padding: "10px 0",
+        ...(highlighted
+          ? {
+              background: "rgba(79, 140, 255, 0.07)",
+              borderLeft: "3px solid var(--accent)",
+              paddingLeft: 10,
+              borderRadius: 6,
+            }
+          : null),
       }}
     >
       <div
@@ -172,9 +197,11 @@ function VideoRow({
 function ChannelGroup({
   bundle,
   period,
+  highlightVideoId,
 }: {
   bundle: ChannelVideoBundle;
   period: ChartPeriod;
+  highlightVideoId?: string | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const { channel, videos } = bundle;
@@ -228,7 +255,16 @@ function ChannelGroup({
               Nenhum vídeo monitorado neste canal.
             </p>
           ) : (
-            videos.map((v) => <VideoRow key={v.id} video={v} period={period} />)
+            videos.map((v) => (
+              <VideoRow
+                key={v.id}
+                video={v}
+                period={period}
+                highlighted={
+                  !!highlightVideoId && v.youtube_video_id === highlightVideoId
+                }
+              />
+            ))
           )}
         </div>
       )}
@@ -242,6 +278,10 @@ export function VideosByChannelView() {
   const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("30d");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
+  const [highlightVideoId, setHighlightVideoId] = useState<string | null>(null);
+  // "Só os que estão subindo": VPD do último snapshot > penúltimo (mesma regra
+  // do card "Vídeos acelerando" do Dashboard).
+  const [onlyRising, setOnlyRising] = useState(false);
   const [page, setPage] = useState(1);
   const [data, setData] = useState<PaginatedVideosByChannel | null>(null);
   const [loading, setLoading] = useState(true);
@@ -255,7 +295,7 @@ export function VideosByChannelView() {
       setError(null);
       try {
         const resp = await apiGet<PaginatedVideosByChannel>(
-          `/api/analytics/videos-by-channel?page=${page}&page_size=10&channel_status=${statusFilter}&q=${encodeURIComponent(q)}`
+          `/api/analytics/videos-by-channel?page=${page}&page_size=10&channel_status=${statusFilter}&q=${encodeURIComponent(q)}&only_rising=${onlyRising}`
         );
         if (!cancelled) setData(resp);
       } catch (e) {
@@ -268,7 +308,20 @@ export function VideosByChannelView() {
     return () => {
       cancelled = true;
     };
-  }, [page, statusFilter, q, reloadTick]);
+  }, [page, statusFilter, q, onlyRising, reloadTick]);
+
+  // Deep-link: /analytics/videos?q=<canal ou vídeo>&highlight=<id do vídeo>
+  // já abre com a busca preenchida e destaca/rola até o vídeo. Usado pelos
+  // links "gráficos do vídeo" das abas do Dashboard.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const initial = params.get("q");
+    if (initial) {
+      setSearch(initial);
+      setQ(initial);
+    }
+    setHighlightVideoId(params.get("highlight"));
+  }, []);
 
   // Busca com debounce (canal ou título de vídeo): 300ms e volta pra página 1.
   useEffect(() => {
@@ -344,6 +397,39 @@ export function VideosByChannelView() {
             );
           })}
         </div>
+
+        <div style={{ width: 1, alignSelf: "stretch", background: "var(--border)" }} />
+
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Vídeos</div>
+        <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { value: false, label: "Todos" },
+            { value: true, label: "Só os que estão subindo" },
+          ].map((opt) => (
+            <button
+              key={String(opt.value)}
+              type="button"
+              role="tab"
+              aria-selected={opt.value === onlyRising}
+              onClick={() => {
+                if (opt.value !== onlyRising) {
+                  setPage(1);
+                  setOnlyRising(opt.value);
+                }
+              }}
+              className={opt.value === onlyRising ? "btn-primary" : "btn-ghost"}
+              style={{ fontSize: 12, padding: "6px 12px" }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {onlyRising && (
+          <span className="muted" style={{ fontSize: 11 }}>
+            só vídeos cujo VPD subiu na última medição — canais sem nenhum vídeo
+            assim ficam de fora
+          </span>
+        )}
       </section>
 
       {/* Período dos gráficos */}
@@ -411,7 +497,12 @@ export function VideosByChannelView() {
         </div>
       ) : (
         data?.items.map((bundle) => (
-          <ChannelGroup key={bundle.channel.id} bundle={bundle} period={chartPeriod} />
+          <ChannelGroup
+            key={bundle.channel.id}
+            bundle={bundle}
+            period={chartPeriod}
+            highlightVideoId={highlightVideoId}
+          />
         ))
       )}
 

@@ -353,7 +353,7 @@ O Analytics ativo já contempla:
 - consistência de crescimento;
 - Canal Viral (campos `breakout_candidate`, `breakout_reason` mantidos por compat; UI exibe "Canal Viral");
 - `niches()` coerente com canais que realmente têm snapshot.
-- **Vídeos por canal** (`GET /api/analytics/videos-by-channel`): lista canais paginada (máx 20/página) com todos os vídeos monitorados e séries temporais de VPD e views. Busca canais → vídeos → snapshots em 3 queries (sem N+1). UI: aba "Vídeos por canal" em `AnalyticsView`, grupos colapsáveis por canal, mini-charts expansíveis por vídeo (`VideosByChannelView.tsx`).
+- **Vídeos por canal** (`GET /api/analytics/videos-by-channel`): lista canais paginada (máx 20/página) com todos os vídeos monitorados e séries temporais de VPD e views. Busca canais → vídeos → snapshots em 3 queries (sem N+1). UI: rota própria `/analytics/videos` (`web/app/analytics/videos/page.tsx` → `VideosByChannelView.tsx`), linkada pelo grupo retrátil "Analytics" do menu lateral. Os gráficos de cada vídeo ficam SEMPRE abertos — o único nível de recolher é o canal (cabeçalho do grupo). Antes era aba interna do `AnalyticsView` com expansão por vídeo; as duas coisas foram removidas.
 - **VPD do canal** (`analytics_service_v2.channel_vpd_series`): 5º gráfico do card — views/dia do CANAL INTEIRO, derivado dos deltas de `views_total` entre snapshots (zero quota). Pontos com span < 6h são acumulados no seguinte (evita extrapolação de sync manual); valores negativos são reais (canal perdeu views). No bundle paginado como `channel_vpd_series` e no endpoint de timeseries como `metric=channel_vpd`. Layout do card: grid fixo 3+2 (`charts-3-2` em `globals.css`) — 1ª linha Inscritos/Views totais/Uploads-sem, 2ª linha VPD do canal/VPD dos últimos 10 uploads. O gráfico "VPD do canal" usa `clampOutliers` (cerca de Tukey no eixo Y — pico falso não achata a curva; tooltip mantém o valor real).
 - **Filtro "Período" dos gráficos** (`ChartPeriod` em `ChannelChart.tsx`, antes "Granularidade"): Todos/7 dias/30 dias — filtra a JANELA de snapshots exibida (âncora = ponto mais recente da série), sem agregação por bucket (o antigo `bucketize` foi removido; opção "1 dia" também). Teto de 100 pontos (`downsample`) continua. Presente nas abas Canais e Vídeos por canal.
 - **Nomenclatura VPD (UI)**: `avg_vpd_recent` (VPD do MELHOR vídeo dos últimos ~10 uploads, usado na classificação de sinal) é exibido como **"VPD dos últimos 10 uploads"** (Analytics, Monitoramento, Sugestões). **"VPD do canal"** é a série nova acima. Não confundir as duas.
@@ -400,6 +400,7 @@ Observações (estado atual após Fases 1–5):
 
 Observações:
 - A sidebar já usa o nome **RK Youtube Analyzer** e renderiza `QuotaSidebarWidget` no rodapé.
+- **Menu com grupos retráteis**: item de `items` que tenha `children` vira grupo (`nav-group`, `nav-group-toggle`, `nav-group-caret`, `nav-group-children` em `globals.css`). O pai só abre/fecha — quem navega são os filhos; o grupo da rota atual abre sozinho. Hoje só "Analytics" (→ `/analytics` = Canais, `/analytics/videos` = Vídeos por canal). Pra adicionar submenu novo, basta pôr `children` no item.
 - Convenções de classe CSS em `globals.css`: prefixo `.notif-*` para a central de notificações (`notif-root`, `notif-toggle`, `notif-badge`, `notif-popover`, `notif-card`, `notif-card-title`, `notif-popover-header/body`, variantes `notif-badge-info|warn|danger`, `notif-perm-*`); prefixo `.quota-widget-*` para o widget de cota na sidebar (`quota-widget`, `-header`, `-refresh`, `-bar`, `-bar-fill`, `-numbers`, `-pct`, `-foot`, `-empty`, `-loading`, `-error`). Reutilizar essas classes em mudanças novas em vez de inventar.
 
 ## App settings: estado atual
@@ -460,12 +461,13 @@ python -m app.seed
 
 | Tela | Arquivos principais |
 |---|---|
-| Dashboard | `web/app/page.tsx`, `web/app/DashboardSyncPanel.tsx` |
+| Dashboard | `web/app/page.tsx`, `web/app/DashboardSyncPanel.tsx`, `web/app/DashboardHighlights.tsx` |
 | Descoberta | `web/app/descoberta/page.tsx`, `web/app/descoberta/DescobertaForm.tsx` |
 | Monitoramento | `web/app/monitoramento/page.tsx`, `web/app/monitoramento/MonitoramentoView.tsx` |
 | Runs | `web/app/runs/page.tsx`, `web/app/runs/RunsView.tsx` |
 | Configurações | `web/app/configuracoes/page.tsx`, `web/app/configuracoes/ConfiguracoesForm.tsx` |
-| Analytics | `web/app/analytics/page.tsx`, `web/app/analytics/AnalyticsView.tsx` |
+| Analytics · Canais | `web/app/analytics/page.tsx`, `web/app/analytics/AnalyticsView.tsx` |
+| Analytics · Vídeos por canal | `web/app/analytics/videos/page.tsx`, `web/components/VideosByChannelView.tsx` |
 
 ## Scripts utilitários
 

@@ -51,7 +51,6 @@ function VideoRow({
   video: VideoAnalyticsItem;
   period: ChartPeriod;
 }) {
-  const [expanded, setExpanded] = useState(false);
   const isUnavailable = !!video.unavailable_reason;
 
   return (
@@ -66,9 +65,7 @@ function VideoRow({
           display: "flex",
           gap: 10,
           alignItems: "flex-start",
-          cursor: "pointer",
         }}
-        onClick={() => setExpanded((v) => !v)}
       >
         <div style={{ opacity: isUnavailable ? 0.5 : 1, flexShrink: 0 }}>
           <VideoThumbnail
@@ -95,7 +92,6 @@ function VideoRow({
                 href={video.url}
                 target="_blank"
                 rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
                 style={{ color: isUnavailable ? "var(--text-dim)" : undefined }}
               >
                 {video.title}
@@ -143,42 +139,32 @@ function VideoRow({
             )}
           </div>
         </div>
-        <button
-          className="btn-ghost"
-          style={{ fontSize: 11, padding: "4px 8px", flexShrink: 0 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            setExpanded((v) => !v);
-          }}
-        >
-          {expanded ? "▲ ocultar" : "▼ gráficos"}
-        </button>
       </div>
 
-      {expanded && (
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 8,
-            marginTop: 10,
-          }}
-        >
-          <ChannelChart
-            title="VPD"
-            data={video.vpd_series}
-            color="#f59e0b"
-            period={period}
-            aggregation="avg"
-          />
-          <ChannelChart
-            title="Views"
-            data={video.views_series}
-            period={period}
-            aggregation="last"
-          />
-        </div>
-      )}
+      {/* Gráficos SEMPRE abertos: quem recolhe é o canal inteiro (cabeçalho do
+          grupo), não vídeo a vídeo. */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 1fr",
+          gap: 8,
+          marginTop: 10,
+        }}
+      >
+        <ChannelChart
+          title="VPD"
+          data={video.vpd_series}
+          color="#f59e0b"
+          period={period}
+          aggregation="avg"
+        />
+        <ChannelChart
+          title="Views"
+          data={video.views_series}
+          period={period}
+          aggregation="last"
+        />
+      </div>
     </div>
   );
 }
@@ -393,7 +379,8 @@ export function VideosByChannelView() {
           })}
         </div>
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-          clique em "gráficos" num vídeo para ver as séries temporais
+          os gráficos já vêm abertos — use "recolher" no cabeçalho do canal para
+          fechar o grupo inteiro
         </span>
       </section>
 

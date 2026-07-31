@@ -8,12 +8,24 @@ import { QuotaSidebarWidget } from "@/components/QuotaSidebarWidget";
 import { apiPost } from "@/lib/api";
 import { clearToken } from "@/lib/authToken";
 
-const items = [
+type NavChild = { href: string; label: string };
+type NavItem = { href: string; label: string; children?: NavChild[] };
+
+// Itens com `children` viram grupo retrátil: o item pai só abre/fecha, quem
+// navega são os filhos.
+const items: NavItem[] = [
   { href: "/", label: "Dashboard" },
   { href: "/descoberta", label: "Descoberta" },
   { href: "/monitoramento", label: "Monitoramento" },
   { href: "/sugestoes", label: "Sugestões" },
-  { href: "/analytics", label: "Analytics" },
+  {
+    href: "/analytics",
+    label: "Analytics",
+    children: [
+      { href: "/analytics", label: "Canais" },
+      { href: "/analytics/videos", label: "Vídeos por canal" },
+    ],
+  },
   { href: "/runs", label: "Runs" },
   { href: "/configuracoes", label: "Configurações" },
 ];
@@ -21,6 +33,18 @@ const items = [
 export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  // Grupos retráteis abertos (por href do pai). Começa fechado; o efeito
+  // abaixo abre sozinho o grupo da rota atual.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  // Ao entrar numa rota que pertence a um grupo, o grupo já aparece aberto —
+  // senão o item ativo ficaria escondido.
+  useEffect(() => {
+    const inGroup = items.find(
+      (it) => it.children && pathname?.startsWith(it.href)
+    );
+    if (inGroup) setOpenGroups((prev) => ({ ...prev, [inGroup.href]: true }));
+  }, [pathname]);
 
   // Fecha o drawer ao trocar de rota (em mobile o usuário acabou de navegar).
   useEffect(() => {
@@ -77,14 +101,49 @@ export function Sidebar() {
           {items.map((it) => {
             const active =
               it.href === "/" ? pathname === "/" : pathname?.startsWith(it.href);
+
+            if (!it.children) {
+              return (
+                <Link
+                  key={it.href}
+                  href={it.href}
+                  className={active ? "active" : undefined}
+                >
+                  {it.label}
+                </Link>
+              );
+            }
+
+            const expanded = !!openGroups[it.href];
             return (
-              <Link
-                key={it.href}
-                href={it.href}
-                className={active ? "active" : undefined}
-              >
-                {it.label}
-              </Link>
+              <div key={it.href} className="nav-group">
+                <button
+                  type="button"
+                  className={`nav-group-toggle${active ? " active" : ""}`}
+                  aria-expanded={expanded}
+                  onClick={() =>
+                    setOpenGroups((prev) => ({ ...prev, [it.href]: !expanded }))
+                  }
+                >
+                  <span>{it.label}</span>
+                  <span className="nav-group-caret" aria-hidden="true">
+                    {expanded ? "▾" : "▸"}
+                  </span>
+                </button>
+                {expanded && (
+                  <div className="nav-group-children">
+                    {it.children.map((child) => (
+                      <Link
+                        key={child.href}
+                        href={child.href}
+                        className={pathname === child.href ? "active" : undefined}
+                      >
+                        {child.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>

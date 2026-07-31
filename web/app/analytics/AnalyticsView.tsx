@@ -8,7 +8,6 @@ import { SpikeAlertControl } from "@/components/SpikeAlertControl";
 import { ChannelChart, type ChartPeriod } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
-import { VideosByChannelView } from "@/components/VideosByChannelView";
 import {
   apiGet,
   type AnalyticsOverview,
@@ -16,8 +15,6 @@ import {
   type NicheRow,
   type PaginatedChannelAnalytics,
 } from "@/lib/api";
-
-type AnalyticsTab = "channels" | "videos";
 
 type Props = {
   niches: NicheRow[];
@@ -115,7 +112,6 @@ function consistencyLabel(label: string | null | undefined): string {
 }
 
 export function AnalyticsView({ niches }: Props) {
-  const [activeTab, setActiveTab] = useState<AnalyticsTab>("channels");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [signalFilter, setSignalFilter] = useState<SignalFilter>("all");
   const [sortBy, setSortBy] = useState<SortBy>("signal");
@@ -245,38 +241,6 @@ export function AnalyticsView({ niches }: Props) {
 
   return (
     <>
-      {/* Abas principais */}
-      <section
-        className="card"
-        style={{
-          marginBottom: 16,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
-        }}
-      >
-        {(
-          [
-            { value: "channels", label: "Canais" },
-            { value: "videos", label: "Vídeos por canal" },
-          ] as { value: AnalyticsTab; label: string }[]
-        ).map((tab) => (
-          <button
-            key={tab.value}
-            type="button"
-            onClick={() => setActiveTab(tab.value)}
-            className={activeTab === tab.value ? "btn-primary" : "btn-ghost"}
-            style={{ fontSize: 13, padding: "6px 16px" }}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </section>
-
-      {activeTab === "videos" && <VideosByChannelView />}
-
-      {activeTab === "channels" && (
-        <>
       {/* Barra de busca por nome do canal */}
       <section className="card" style={{ marginBottom: 16 }}>
         <input
@@ -811,8 +775,6 @@ export function AnalyticsView({ niches }: Props) {
             </table>
           </div>
         </section>
-      )}
-        </>
       )}
     </>
   );

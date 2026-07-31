@@ -12,7 +12,7 @@ export default async function AnalyticsPage() {
   return (
     <>
       <header className="page-header">
-        <h2>Analytics</h2>
+        <h2>Analytics · Canais</h2>
         <p className="muted">
           Sinais de aceleração, gráficos por canal e agregação por nicho. Dados
           vêm dos snapshots coletados automaticamente pelo sync.

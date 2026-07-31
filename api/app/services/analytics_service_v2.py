@@ -192,7 +192,98 @@ ALLOWED_METRICS = {
 }
 
 
+# Span mínimo (em dias) entre pontos da série "VPD do canal". Snapshots muito
+# próximos (ex.: sync manual minutos depois do automático) extrapolam qualquer
+# ruído pra números absurdos de views/dia — então acumulamos até ter >= 6h.
+_CHANNEL_VPD_MIN_SPAN_DAYS = 0.25
+
+
+def channel_vpd_series(db: Session, channel_id: int) -> list[dict]:
+    """
+    Série "VPD do canal": ganho de views do CANAL INTEIRO por dia, derivado
+    dos snapshots de `views_total` já coletados (zero custo de YouTube).
+
+    Diferente do `avg_vpd_recent` (VPD do melhor vídeo dos últimos uploads),
+    aqui cada ponto é (views_total atual - anterior) / dias entre snapshots.
+    Valores negativos são possíveis e reais (canal perdeu views — ex.: vídeos
+    apagados/privados); mostramos como estão.
+    """
+    rows = (
+        db.query(ChannelSnapshot.captured_at, ChannelSnapshot.views_total)
+        .filter(
+            ChannelSnapshot.channel_id == channel_id,
+            ChannelSnapshot.views_total.isnot(None),
+        )
+        .order_by(ChannelSnapshot.captured_at.asc())
+        .all()
+    )
+    out: list[dict] = []
+    anchor_at: Optional[datetime] = None
+    anchor_views: Optional[int] = None
+    for captured_at, views_total in rows:
+        if captured_at is None:
+            continue
+        if anchor_at is None:
+            anchor_at = captured_at
+            anchor_views = views_total
+            continue
+        span_days = (captured_at - anchor_at).total_seconds() / 86400.0
+        if span_days < _CHANNEL_VPD_MIN_SPAN_DAYS:
+            continue
+        gain = (views_total or 0) - (anchor_views or 0)
+        out.append(
+            {
+                "captured_at": captured_at.isoformat(),
+                "value": round(gain / span_days, 2),
+            }
+        )
+        anchor_at = captured_at
+        anchor_views = views_total
+    return out
+
+
+def uploads_events_series(db: Session, channel_id: int) -> list[dict]:
+    """
+    Série do gráfico "Uploads/semana": em vez de um ponto por snapshot (o sync
+    roda várias vezes ao dia e polui o gráfico com barras repetidas), só emite
+    ponto quando um upload novo foi detectado — isto é, quando o `video_count`
+    do canal aumentou em relação ao snapshot anterior. O valor plotado continua
+    sendo o ritmo `uploads_per_week` daquele momento. Queda no `video_count`
+    (vídeo apagado/privado) só rebaixa a base, sem gerar ponto.
+    """
+    rows = (
+        db.query(
+            ChannelSnapshot.captured_at,
+            ChannelSnapshot.video_count,
+            ChannelSnapshot.uploads_per_week,
+        )
+        .filter(
+            ChannelSnapshot.channel_id == channel_id,
+            ChannelSnapshot.video_count.isnot(None),
+        )
+        .order_by(ChannelSnapshot.captured_at.asc())
+        .all()
+    )
+    out: list[dict] = []
+    baseline: Optional[int] = None
+    for captured_at, video_count, uploads_per_week in rows:
+        if captured_at is None:
+            continue
+        if baseline is not None and video_count > baseline:
+            out.append(
+                {
+                    "captured_at": captured_at.isoformat(),
+                    "value": uploads_per_week,
+                }
+            )
+        baseline = video_count
+    return out
+
+
 def timeseries(db: Session, channel_id: int, metric: str) -> list[dict]:
+    # Métrica derivada (não é coluna do snapshot): views/dia do canal inteiro.
+    if metric == "channel_vpd":
+        return channel_vpd_series(db, channel_id)
     if metric not in ALLOWED_METRICS:
         raise ValueError(f"metric invalida: {metric}")
     col = ALLOWED_METRICS[metric]
@@ -668,7 +759,8 @@ def channels_paginated(
                 "subscribers_series": timeseries(db, channel.id, "subscribers"),
                 "views_series": timeseries(db, channel.id, "views_total"),
                 "vpd_series": timeseries(db, channel.id, "avg_vpd_recent"),
-                "uploads_series": timeseries(db, channel.id, "uploads_per_week"),
+                "channel_vpd_series": channel_vpd_series(db, channel.id),
+                "uploads_series": uploads_events_series(db, channel.id),
             }
         )
 

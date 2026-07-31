@@ -354,6 +354,8 @@ O Analytics ativo já contempla:
 - Canal Viral (campos `breakout_candidate`, `breakout_reason` mantidos por compat; UI exibe "Canal Viral");
 - `niches()` coerente com canais que realmente têm snapshot.
 - **Vídeos por canal** (`GET /api/analytics/videos-by-channel`): lista canais paginada (máx 20/página) com todos os vídeos monitorados e séries temporais de VPD e views. Busca canais → vídeos → snapshots em 3 queries (sem N+1). UI: aba "Vídeos por canal" em `AnalyticsView`, grupos colapsáveis por canal, mini-charts expansíveis por vídeo (`VideosByChannelView.tsx`).
+- **VPD do canal** (`analytics_service_v2.channel_vpd_series`): 5º gráfico do card — views/dia do CANAL INTEIRO, derivado dos deltas de `views_total` entre snapshots (zero quota). Pontos com span < 6h são acumulados no seguinte (evita extrapolação de sync manual); valores negativos são reais (canal perdeu views). No bundle paginado como `channel_vpd_series` e no endpoint de timeseries como `metric=channel_vpd`.
+- **Nomenclatura VPD (UI)**: `avg_vpd_recent` (VPD do MELHOR vídeo dos últimos ~10 uploads, usado na classificação de sinal) é exibido como **"VPD dos últimos 10 uploads"** (Analytics, Monitoramento, Sugestões). **"VPD do canal"** é a série nova acima. Não confundir as duas.
 
 ### Notificações internas
 

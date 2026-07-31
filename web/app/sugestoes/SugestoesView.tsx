@@ -323,7 +323,7 @@ export function SugestoesView() {
 
               <div className="analytics-charts-grid">
                 <ChannelChart
-                  title="VPD recente"
+                  title="VPD dos últimos 10 uploads"
                   data={series?.vpd ?? []}
                   color="#f59e0b"
                   aggregation="avg"
@@ -369,7 +369,7 @@ export function SugestoesView() {
                 <tr>
                   <th>Canal</th>
                   <th style={{ textAlign: "right" }}>Inscritos</th>
-                  <th style={{ textAlign: "right" }}>VPD recente</th>
+                  <th style={{ textAlign: "right" }}>VPD dos últimos 10 uploads</th>
                   <th style={{ textAlign: "right" }}>Top vídeo</th>
                   <th>Por que</th>
                   <th style={{ width: 200 }}></th>
@@ -461,7 +461,7 @@ export function SugestoesView() {
                 <tr>
                   <th>Canal</th>
                   <th style={{ textAlign: "right" }}>Dias sem upload</th>
-                  <th style={{ textAlign: "right" }}>VPD recente</th>
+                  <th style={{ textAlign: "right" }}>VPD dos últimos 10 uploads</th>
                   <th>Sinal</th>
                   <th>Por que</th>
                   <th style={{ width: 200 }}></th>

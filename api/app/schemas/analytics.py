@@ -83,7 +83,10 @@ class ChannelAnalyticsBundle(BaseModel):
     summary: ChannelAnalyticsSummary
     subscribers_series: list[TimeseriesPoint]
     views_series: list[TimeseriesPoint]
+    # VPD do melhor vídeo dos últimos uploads (métrica de classificação).
     vpd_series: list[TimeseriesPoint]
+    # Views/dia do canal inteiro, derivada dos deltas de views_total.
+    channel_vpd_series: list[TimeseriesPoint] = []
     uploads_series: list[TimeseriesPoint]
 
 

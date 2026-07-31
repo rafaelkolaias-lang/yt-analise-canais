@@ -576,7 +576,10 @@ export type ChannelAnalyticsBundle = {
   summary: ChannelAnalyticsSummary;
   subscribers_series: TimeseriesPoint[];
   views_series: TimeseriesPoint[];
+  // VPD do melhor vídeo dos últimos uploads (métrica de classificação).
   vpd_series: TimeseriesPoint[];
+  // Views/dia do canal inteiro (derivada dos deltas de views totais).
+  channel_vpd_series: TimeseriesPoint[];
   uploads_series: TimeseriesPoint[];
 };
 

@@ -520,7 +520,7 @@ export function AnalyticsView({ niches }: Props) {
                 <Skeleton width={80} height={20} radius={999} />
               </div>
               <div className="analytics-charts-grid">
-                {[0, 1, 2, 3].map((i) => (
+                {[0, 1, 2, 3, 4].map((i) => (
                   <div key={i} className="analytics-chart-box">
                     <Skeleton width="40%" height={11} />
                     <div style={{ marginTop: 8 }}>
@@ -541,6 +541,7 @@ export function AnalyticsView({ niches }: Props) {
             subscribers_series,
             views_series,
             vpd_series,
+            channel_vpd_series,
             uploads_series,
           }) => {
             const signal = summary?.signal ?? null;
@@ -667,7 +668,14 @@ export function AnalyticsView({ niches }: Props) {
                     aggregation="last"
                   />
                   <ChannelChart
-                    title="VPD recente"
+                    title="VPD do canal"
+                    data={channel_vpd_series}
+                    color="#fb7185"
+                    bucket={chartBucket}
+                    aggregation="avg"
+                  />
+                  <ChannelChart
+                    title="VPD dos últimos 10 uploads"
                     data={vpd_series}
                     color="#f59e0b"
                     bucket={chartBucket}

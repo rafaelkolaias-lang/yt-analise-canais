@@ -942,7 +942,7 @@ export function MonitoramentoView({
                   style={{ textAlign: "right" }}
                 />
                 <SortableHeader<ChannelSortKey>
-                  label="VPD recente"
+                  label="VPD dos últimos 10 uploads"
                   columnKey="vpd"
                   currentSort={channelFilters.sort}
                   defaultSort={DEFAULT_CHANNEL_FILTERS.sort}
@@ -1154,7 +1154,7 @@ export function MonitoramentoView({
                           </span>
                         </div>
                         <div>
-                          <span className="label">VPD recente</span>
+                          <span className="label">VPD dos últimos 10 uploads</span>
                           <span className="value">
                             {c.avg_vpd_recent != null
                               ? formatInt(Math.round(c.avg_vpd_recent))

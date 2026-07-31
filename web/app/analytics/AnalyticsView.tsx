@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { ChannelAvatar } from "@/components/ChannelAvatar";
 import { ChannelNote, FavoriteStar } from "@/components/ChannelMetaControls";
 import { SpikeAlertControl } from "@/components/SpikeAlertControl";
-import { ChannelChart, type ChartBucket } from "@/components/ChannelChart";
+import { ChannelChart, type ChartPeriod } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
 import { VideosByChannelView } from "@/components/VideosByChannelView";
@@ -54,9 +54,8 @@ const SIGNAL_OPTIONS: { value: SignalFilter; label: string }[] = [
   { value: "unknown", label: "Sem sinal" },
 ];
 
-const BUCKET_OPTIONS: { value: ChartBucket; label: string }[] = [
+const PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
   { value: "all", label: "Todos" },
-  { value: "1d", label: "1 dia" },
   { value: "7d", label: "7 dias" },
   { value: "30d", label: "30 dias" },
 ];
@@ -104,13 +103,13 @@ function fmtPct(v: number | null | undefined): string {
 function consistencyLabel(label: string | null | undefined): string {
   switch (label) {
     case "forte":
-      return "consistÃªncia forte";
+      return "consistência forte";
     case "mista":
-      return "consistÃªncia mista";
+      return "consistência mista";
     case "fraca":
-      return "consistÃªncia fraca";
+      return "consistência fraca";
     default:
-      return "sem consistÃªncia";
+      return "sem consistência";
   }
 }
 
@@ -121,7 +120,7 @@ export function AnalyticsView({ niches }: Props) {
   const [sortBy, setSortBy] = useState<SortBy>("signal");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState(""); // versão "debounced" enviada à API
-  const [chartBucket, setChartBucket] = useState<ChartBucket>("all");
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [data, setData] = useState<PaginatedChannelAnalytics | null>(null);
@@ -402,7 +401,7 @@ export function AnalyticsView({ niches }: Props) {
         </span>
       </section>
 
-      {/* Barra de granularidade dos graficos */}
+      {/* Barra de período dos gráficos */}
       <section
         className="card"
         style={{
@@ -413,10 +412,10 @@ export function AnalyticsView({ niches }: Props) {
           flexWrap: "wrap",
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 500 }}>Granularidade dos gráficos</div>
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Período</div>
         <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {BUCKET_OPTIONS.map((opt) => {
-            const active = opt.value === chartBucket;
+          {PERIOD_OPTIONS.map((opt) => {
+            const active = opt.value === chartPeriod;
             return (
               <button
                 key={opt.value}
@@ -424,7 +423,7 @@ export function AnalyticsView({ niches }: Props) {
                 role="tab"
                 aria-selected={active}
                 onClick={() => {
-                  if (opt.value !== chartBucket) setChartBucket(opt.value);
+                  if (opt.value !== chartPeriod) setChartPeriod(opt.value);
                 }}
                 className={active ? "btn-primary" : "btn-ghost"}
                 style={{ fontSize: 12, padding: "6px 12px" }}
@@ -435,9 +434,9 @@ export function AnalyticsView({ niches }: Props) {
           })}
         </div>
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-          {chartBucket === "all"
-            ? "todos os snapshots"
-            : `1 ponto por ${BUCKET_OPTIONS.find((o) => o.value === chartBucket)?.label.toLowerCase()}`}
+          {chartPeriod === "all"
+            ? "todo o histórico"
+            : `últimos ${chartPeriod === "7d" ? 7 : 30} dias`}
         </span>
       </section>
 
@@ -658,13 +657,13 @@ export function AnalyticsView({ niches }: Props) {
                     title="Inscritos"
                     data={subscribers_series}
                     color="#2dd4bf"
-                    bucket={chartBucket}
+                    period={chartPeriod}
                     aggregation="last"
                   />
                   <ChannelChart
                     title="Views totais"
                     data={views_series}
-                    bucket={chartBucket}
+                    period={chartPeriod}
                     aggregation="last"
                   />
                   <ChannelChart
@@ -673,21 +672,22 @@ export function AnalyticsView({ niches }: Props) {
                     kind="bar"
                     color="#a78bfa"
                     formatValue={(v) => v.toFixed(1)}
-                    bucket={chartBucket}
+                    period={chartPeriod}
                     aggregation="avg"
                   />
                   <ChannelChart
                     title="VPD do canal"
                     data={channel_vpd_series}
                     color="#fb7185"
-                    bucket={chartBucket}
+                    period={chartPeriod}
                     aggregation="avg"
+                    clampOutliers
                   />
                   <ChannelChart
                     title="VPD dos últimos 10 uploads"
                     data={vpd_series}
                     color="#f59e0b"
-                    bucket={chartBucket}
+                    period={chartPeriod}
                     aggregation="avg"
                   />
                 </div>

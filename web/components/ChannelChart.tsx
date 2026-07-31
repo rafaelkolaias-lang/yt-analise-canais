@@ -16,11 +16,15 @@ import type { TimeseriesPoint } from "@/lib/api";
 
 type Kind = "line" | "bar";
 
-// 'all' devolve a série bruta. 1/7/30 = quantos dias cada bucket cobre.
-export type ChartBucket = "all" | "1d" | "7d" | "30d";
+// Filtro de PERÍODO: 'all' = histórico inteiro; 7d/30d = só os snapshots dos
+// últimos N dias (contados a partir do ponto mais recente da série — assim o
+// gráfico não fica vazio se o sync estiver atrasado). Não agrega nada: os
+// pontos continuam sendo os snapshots crus, com o teto de MAX_POINTS valendo.
+export type ChartPeriod = "all" | "7d" | "30d";
 
-// Para métricas cumulativas (views, inscritos) usamos o último valor do bucket;
-// para derivadas (VPD, uploads/sem) usamos a média.
+// Critério do downsample (teto de pontos): para métricas cumulativas (views,
+// inscritos) usamos o último valor do grupo; para derivadas (VPD, uploads/sem)
+// usamos a média.
 export type ChartAggregation = "last" | "avg";
 
 // Teto de pontos por gráfico. Como o sync roda várias vezes ao dia, a série
@@ -35,8 +39,13 @@ type Props = {
   kind?: Kind;
   color?: string;
   formatValue?: (v: number) => string;
-  bucket?: ChartBucket;
+  period?: ChartPeriod;
   aggregation?: ChartAggregation;
+  // Corta outliers extremos do eixo Y (picos falsos de snapshot defeituoso):
+  // a escala passa a cobrir só a faixa "normal" dos dados e o pico é desenhado
+  // cortado na borda, em vez de achatar o gráfico inteiro. O tooltip continua
+  // mostrando o valor real do ponto.
+  clampOutliers?: boolean;
 };
 
 function defaultFormat(v: number): string {
@@ -56,49 +65,41 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
-function formatDateOnly(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-}
-
 type CleanPoint = { captured_at: string; value: number };
 
-// Agrega pontos em buckets de N dias contados a partir do mais recente do array
-// (não do "agora" do cliente — assim evita buckets vazios na borda quando há
-// snapshots espaçados). Critério dentro do bucket vem do `aggregation`:
-// 'last' = último valor do bucket, 'avg' = média.
-function bucketize(points: CleanPoint[], bucketDays: number, aggregation: ChartAggregation): CleanPoint[] {
+// Mantém só os pontos dos últimos N dias, contados a partir do ponto mais
+// recente da série (não do "agora" do cliente — evita gráfico vazio quando o
+// sync está atrasado).
+function filterPeriod(points: CleanPoint[], days: number): CleanPoint[] {
   if (points.length === 0) return points;
-  const bucketMs = bucketDays * 24 * 60 * 60 * 1000;
   const sorted = [...points].sort(
     (a, b) => new Date(a.captured_at).getTime() - new Date(b.captured_at).getTime()
   );
   const anchor = new Date(sorted[sorted.length - 1].captured_at).getTime();
+  const cutoff = anchor - days * 24 * 60 * 60 * 1000;
+  return sorted.filter((p) => new Date(p.captured_at).getTime() >= cutoff);
+}
 
-  const buckets = new Map<number, CleanPoint[]>();
-  for (const p of sorted) {
-    const t = new Date(p.captured_at).getTime();
-    // bucketIndex 0 = bucket mais recente (cobrindo até o anchor).
-    const idx = Math.floor((anchor - t) / bucketMs);
-    const arr = buckets.get(idx);
-    if (arr) arr.push(p);
-    else buckets.set(idx, [p]);
-  }
-
-  const indexes = [...buckets.keys()].sort((a, b) => b - a); // mais antigo → mais recente
-  const out: CleanPoint[] = [];
-  for (const idx of indexes) {
-    const arr = buckets.get(idx)!;
-    if (aggregation === "last") {
-      const last = arr[arr.length - 1];
-      out.push(last);
-    } else {
-      const avg = arr.reduce((acc, p) => acc + p.value, 0) / arr.length;
-      out.push({ captured_at: arr[arr.length - 1].captured_at, value: avg });
-    }
-  }
-  return out;
+// Domínio "robusto" do eixo Y: cerca de Tukey (quartis ± 3×IQR). Devolve null
+// quando não há outlier — aí o eixo fica no automático do recharts. Com menos
+// de 8 pontos não dá pra estimar quartil com confiança, então não corta nada.
+function robustDomain(values: number[]): [number, number] | null {
+  if (values.length < 8) return null;
+  const s = [...values].sort((a, b) => a - b);
+  const q = (p: number) => {
+    const idx = (s.length - 1) * p;
+    const lo = Math.floor(idx);
+    const hi = Math.ceil(idx);
+    return s[lo] + (s[hi] - s[lo]) * (idx - lo);
+  };
+  const q1 = q(0.25);
+  const q3 = q(0.75);
+  const iqr = q3 - q1;
+  if (iqr <= 0) return null;
+  const lo = q1 - 3 * iqr;
+  const hi = q3 + 3 * iqr;
+  if (s[0] >= lo && s[s.length - 1] <= hi) return null;
+  return [Math.max(s[0], lo), Math.min(s[s.length - 1], hi)];
 }
 
 // Reduz a série pra no máximo `max` pontos, dividindo em grupos contíguos de
@@ -137,25 +138,22 @@ export function ChannelChart({
   kind = "line",
   color = "#4f8cff",
   formatValue = defaultFormat,
-  bucket = "all",
+  period = "all",
   aggregation = "last",
+  clampOutliers = false,
 }: Props) {
   const cleanRaw: CleanPoint[] = data
     .filter((p) => p.value !== null && p.captured_at)
     .map((p) => ({ captured_at: p.captured_at!, value: p.value as number }));
 
-  const aggregated =
-    bucket === "all"
-      ? cleanRaw
-      : bucketize(cleanRaw, bucket === "1d" ? 1 : bucket === "7d" ? 7 : 30, aggregation);
+  const inPeriod =
+    period === "all" ? cleanRaw : filterPeriod(cleanRaw, period === "7d" ? 7 : 30);
 
-  // Teto de pontos: mesmo no modo "Todos" (ou em buckets curtos com longo
-  // histórico), nunca renderiza mais que MAX_POINTS.
-  const capped = downsample(aggregated, MAX_POINTS, aggregation);
+  // Teto de pontos: histórico longo no modo "Todos" nunca renderiza mais que
+  // MAX_POINTS (reamostra preservando o formato da curva e o último ponto).
+  const capped = downsample(inPeriod, MAX_POINTS, aggregation);
 
-  // Em buckets diários ou maiores não precisa mostrar hora — fica menos poluído.
-  const labelFn = bucket === "all" ? formatDateTime : formatDateOnly;
-  const clean = capped.map((p) => ({ ...p, label: labelFn(p.captured_at) }));
+  const clean = capped.map((p) => ({ ...p, label: formatDateTime(p.captured_at) }));
 
   if (clean.length === 0) {
     return (
@@ -169,6 +167,8 @@ export function ChannelChart({
   // Média do período exibido (sobre os pontos já reamostrados/plotados).
   const avgValue =
     clean.reduce((acc, p) => acc + p.value, 0) / clean.length;
+
+  const yDomain = clampOutliers ? robustDomain(clean.map((p) => p.value)) : null;
 
   const Chart = kind === "bar" ? BarChart : LineChart;
   return (
@@ -189,6 +189,8 @@ export function ChannelChart({
             fontSize={10}
             tickFormatter={(v: number) => formatValue(v)}
             width={40}
+            domain={yDomain ?? undefined}
+            allowDataOverflow={yDomain != null}
           />
           <Tooltip
             contentStyle={{

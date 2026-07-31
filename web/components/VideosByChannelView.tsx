@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { ChannelAvatar } from "@/components/ChannelAvatar";
-import { ChannelChart, type ChartBucket } from "@/components/ChannelChart";
+import { ChannelChart, type ChartPeriod } from "@/components/ChannelChart";
 import { ErrorCard } from "@/components/ErrorCard";
 import { Skeleton } from "@/components/Skeleton";
 import { VideoThumbnail } from "@/components/VideoThumbnail";
@@ -23,9 +23,8 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all", label: "Todos" },
 ];
 
-const BUCKET_OPTIONS: { value: ChartBucket; label: string }[] = [
+const PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
   { value: "all", label: "Todos" },
-  { value: "1d", label: "1 dia" },
   { value: "7d", label: "7 dias" },
   { value: "30d", label: "30 dias" },
 ];
@@ -46,10 +45,10 @@ function fmtDate(iso: string | null | undefined): string {
 
 function VideoRow({
   video,
-  bucket,
+  period,
 }: {
   video: VideoAnalyticsItem;
-  bucket: ChartBucket;
+  period: ChartPeriod;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isUnavailable = !!video.unavailable_reason;
@@ -168,13 +167,13 @@ function VideoRow({
             title="VPD"
             data={video.vpd_series}
             color="#f59e0b"
-            bucket={bucket}
+            period={period}
             aggregation="avg"
           />
           <ChannelChart
             title="Views"
             data={video.views_series}
-            bucket={bucket}
+            period={period}
             aggregation="last"
           />
         </div>
@@ -185,10 +184,10 @@ function VideoRow({
 
 function ChannelGroup({
   bundle,
-  bucket,
+  period,
 }: {
   bundle: ChannelVideoBundle;
-  bucket: ChartBucket;
+  period: ChartPeriod;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const { channel, videos } = bundle;
@@ -242,7 +241,7 @@ function ChannelGroup({
               Nenhum vídeo monitorado neste canal.
             </p>
           ) : (
-            videos.map((v) => <VideoRow key={v.id} video={v} bucket={bucket} />)
+            videos.map((v) => <VideoRow key={v.id} video={v} period={period} />)
           )}
         </div>
       )}
@@ -252,7 +251,7 @@ function ChannelGroup({
 
 export function VideosByChannelView() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
-  const [chartBucket, setChartBucket] = useState<ChartBucket>("all");
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("all");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);
@@ -359,7 +358,7 @@ export function VideosByChannelView() {
         </div>
       </section>
 
-      {/* Granularidade dos gráficos */}
+      {/* Período dos gráficos */}
       <section
         className="card"
         style={{
@@ -370,10 +369,10 @@ export function VideosByChannelView() {
           flexWrap: "wrap",
         }}
       >
-        <div style={{ fontSize: 13, fontWeight: 500 }}>Granularidade dos gráficos</div>
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Período</div>
         <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          {BUCKET_OPTIONS.map((opt) => {
-            const active = opt.value === chartBucket;
+          {PERIOD_OPTIONS.map((opt) => {
+            const active = opt.value === chartPeriod;
             return (
               <button
                 key={opt.value}
@@ -381,7 +380,7 @@ export function VideosByChannelView() {
                 role="tab"
                 aria-selected={active}
                 onClick={() => {
-                  if (opt.value !== chartBucket) setChartBucket(opt.value);
+                  if (opt.value !== chartPeriod) setChartPeriod(opt.value);
                 }}
                 className={active ? "btn-primary" : "btn-ghost"}
                 style={{ fontSize: 12, padding: "6px 12px" }}
@@ -423,7 +422,7 @@ export function VideosByChannelView() {
         </div>
       ) : (
         data?.items.map((bundle) => (
-          <ChannelGroup key={bundle.channel.id} bundle={bundle} bucket={chartBucket} />
+          <ChannelGroup key={bundle.channel.id} bundle={bundle} period={chartPeriod} />
         ))
       )}
 

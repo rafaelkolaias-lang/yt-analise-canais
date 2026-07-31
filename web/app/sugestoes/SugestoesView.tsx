@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ChannelAvatar } from "@/components/ChannelAvatar";
-import { ChannelChart } from "@/components/ChannelChart";
+import { ChannelChart, type ChartPeriod } from "@/components/ChannelChart";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useToast } from "@/components/Toaster";
 import {
@@ -48,6 +48,13 @@ type CandidateSeries = {
   subs: TimeseriesPoint[];
 };
 
+const PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
+  { value: "all", label: "Todos" },
+  { value: "7d", label: "7 dias" },
+  { value: "30d", label: "30 dias" },
+  { value: "90d", label: "90 dias" },
+];
+
 export function SugestoesView() {
   const toast = useToast();
   const confirm = useConfirm();
@@ -59,6 +66,8 @@ export function SugestoesView() {
     Record<number, CandidateSeries>
   >({});
   const [loading, setLoading] = useState(false);
+  // Período padrão dos gráficos ao abrir: 30 dias (igual ao Analytics).
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("30d");
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -208,12 +217,42 @@ export function SugestoesView() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div
+        className="card"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 500 }}>Período</div>
+        <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {PERIOD_OPTIONS.map((opt) => {
+            const active = opt.value === chartPeriod;
+            return (
+              <button
+                key={opt.value}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  if (opt.value !== chartPeriod) setChartPeriod(opt.value);
+                }}
+                className={active ? "btn-primary" : "btn-ghost"}
+                style={{ fontSize: 12, padding: "6px 12px" }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
         <button
           type="button"
           className="btn-ghost"
           onClick={loadAll}
           disabled={loading}
+          style={{ marginLeft: "auto" }}
         >
           {loading ? "..." : "Recarregar"}
         </button>
@@ -326,17 +365,20 @@ export function SugestoesView() {
                   title="VPD dos últimos 10 uploads"
                   data={series?.vpd ?? []}
                   color="#f59e0b"
+                  period={chartPeriod}
                   aggregation="avg"
                 />
                 <ChannelChart
                   title="Views totais"
                   data={series?.views ?? []}
+                  period={chartPeriod}
                   aggregation="last"
                 />
                 <ChannelChart
                   title="Inscritos"
                   data={series?.subs ?? []}
                   color="#2dd4bf"
+                  period={chartPeriod}
                   aggregation="last"
                 />
               </div>

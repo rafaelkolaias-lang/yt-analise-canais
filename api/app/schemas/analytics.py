@@ -21,6 +21,50 @@ class TimeseriesPoint(BaseModel):
     value: Optional[float]
 
 
+# =============================================================================
+# Highlights — listas por trás dos contadores do Dashboard
+# =============================================================================
+class HighlightChannelRow(BaseModel):
+    id: int
+    youtube_channel_id: str
+    title: str
+    url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    status: str
+    is_favorite: bool = False
+    signal: Optional[str] = None
+    signal_reason: Optional[str] = None
+    opportunity_score: int = 0
+    subscribers: Optional[int] = None
+    avg_vpd_recent: Optional[float] = None
+    delta_avg_vpd: Optional[float] = None
+    uploads_per_week: Optional[float] = None
+    captured_at: Optional[str] = None
+
+
+class HighlightVideoRow(BaseModel):
+    id: int
+    youtube_video_id: str
+    title: str
+    url: Optional[str] = None
+    thumbnail_url: Optional[str] = None
+    channel_id: int
+    channel_title: str
+    vpd_now: Optional[float] = None
+    vpd_prev: Optional[float] = None
+    vpd_delta: Optional[float] = None
+    last_seen_views: Optional[int] = None
+    last_seen_at: Optional[str] = None
+
+
+class AnalyticsHighlights(BaseModel):
+    kind: str
+    # Total encontrado ANTES do corte por `limit` — é o número que o card mostra.
+    total: int
+    channels: list[HighlightChannelRow] = []
+    videos: list[HighlightVideoRow] = []
+
+
 class GrowthPair(BaseModel):
     current: Optional[float] = None
     pct_7d: Optional[float] = None

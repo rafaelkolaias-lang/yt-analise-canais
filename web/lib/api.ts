@@ -510,6 +510,53 @@ export type TimeseriesPoint = {
   value: number | null;
 };
 
+// Abas do Dashboard: lista compacta por trás de cada contador do /overview.
+export type HighlightKind =
+  | "heating"
+  | "promising"
+  | "saturated"
+  | "videos_accelerating";
+
+export type HighlightChannelRow = {
+  id: number;
+  youtube_channel_id: string;
+  title: string;
+  url: string | null;
+  thumbnail_url: string | null;
+  status: string;
+  is_favorite: boolean;
+  signal: string | null;
+  signal_reason: string | null;
+  opportunity_score: number;
+  subscribers: number | null;
+  avg_vpd_recent: number | null;
+  delta_avg_vpd: number | null;
+  uploads_per_week: number | null;
+  captured_at: string | null;
+};
+
+export type HighlightVideoRow = {
+  id: number;
+  youtube_video_id: string;
+  title: string;
+  url: string | null;
+  thumbnail_url: string | null;
+  channel_id: number;
+  channel_title: string;
+  vpd_now: number | null;
+  vpd_prev: number | null;
+  vpd_delta: number | null;
+  last_seen_views: number | null;
+  last_seen_at: string | null;
+};
+
+export type AnalyticsHighlights = {
+  kind: HighlightKind;
+  total: number;
+  channels: HighlightChannelRow[];
+  videos: HighlightVideoRow[];
+};
+
 export type AnalyticsMetric =
   | "subscribers"
   | "views_total"

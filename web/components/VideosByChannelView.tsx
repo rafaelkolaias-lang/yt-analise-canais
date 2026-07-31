@@ -27,6 +27,7 @@ const PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "7d", label: "7 dias" },
   { value: "30d", label: "30 dias" },
+  { value: "90d", label: "90 dias" },
 ];
 
 function fmtNumber(v: number | null | undefined): string {
@@ -251,7 +252,8 @@ function ChannelGroup({
 
 export function VideosByChannelView() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
-  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("all");
+  // Período padrão dos gráficos ao abrir: 30 dias (igual à aba Canais).
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("30d");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState("");
   const [page, setPage] = useState(1);

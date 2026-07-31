@@ -58,6 +58,7 @@ const PERIOD_OPTIONS: { value: ChartPeriod; label: string }[] = [
   { value: "all", label: "Todos" },
   { value: "7d", label: "7 dias" },
   { value: "30d", label: "30 dias" },
+  { value: "90d", label: "90 dias" },
 ];
 
 type SortBy = "signal" | "score";
@@ -120,7 +121,11 @@ export function AnalyticsView({ niches }: Props) {
   const [sortBy, setSortBy] = useState<SortBy>("signal");
   const [search, setSearch] = useState("");
   const [q, setQ] = useState(""); // versão "debounced" enviada à API
-  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("all");
+  // Período padrão dos gráficos ao abrir o site: 30 dias.
+  const [chartPeriod, setChartPeriod] = useState<ChartPeriod>("30d");
+  // Corte de picos (outliers) dos gráficos: ligado por padrão, escolha do
+  // usuário fica salva no navegador.
+  const [clampOutliers, setClampOutliers] = useState(true);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
   const [data, setData] = useState<PaginatedChannelAnalytics | null>(null);
@@ -156,13 +161,29 @@ export function AnalyticsView({ niches }: Props) {
         : prev
     );
 
+  useEffect(() => {
+    const saved = window.localStorage.getItem("analytics_clamp_outliers");
+    if (saved !== null) setClampOutliers(saved === "1");
+  }, []);
+
+  const changeClampOutliers = (v: boolean) => {
+    setClampOutliers(v);
+    window.localStorage.setItem("analytics_clamp_outliers", v ? "1" : "0");
+  };
+
   // Deep-link: /analytics?q=<canal> (usado pelo card de pico de views e pelo
   // popup do app do Windows) já abre com a busca preenchida e filtrada.
+  // /analytics?signal=<sinal> vem das abas do Dashboard ("abrir no Analytics").
   useEffect(() => {
-    const initial = new URLSearchParams(window.location.search).get("q");
+    const params = new URLSearchParams(window.location.search);
+    const initial = params.get("q");
     if (initial) {
       setSearch(initial);
       setQ(initial);
+    }
+    const signal = params.get("signal");
+    if (signal && SIGNAL_OPTIONS.some((o) => o.value === signal)) {
+      setSignalFilter(signal as SignalFilter);
     }
   }, []);
 
@@ -274,7 +295,10 @@ export function AnalyticsView({ niches }: Props) {
         )}
       </section>
 
-      {/* Barra de filtro de status */}
+      {/* Filtros — linha 1: status do canal + sinal.
+          Sobre o sinal: a ordenacao padrao da lista vem do melhor para o pior
+          (heating > promising > stable > saturated > sem sinal) e o filtro
+          restringe a apenas um sinal quando necessario. */}
       <section
         className="card"
         style={{
@@ -309,25 +333,7 @@ export function AnalyticsView({ niches }: Props) {
             );
           })}
         </div>
-        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-          mostrando {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label.toLowerCase()}
-        </span>
-      </section>
-
-      {/* Barra de filtro de sinal — ordenacao padrao da lista vem do
-          melhor para o pior (heating > promising > stable > saturated >
-          sem sinal) e este filtro restringe a apenas um sinal quando
-          necessario. */}
-      <section
-        className="card"
-        style={{
-          marginBottom: 16,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
+        <div style={{ width: 1, alignSelf: "stretch", background: "#1f2a4a" }} />
         <div style={{ fontSize: 13, fontWeight: 500 }}>Sinal</div>
         <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {SIGNAL_OPTIONS.map((opt) => {
@@ -353,13 +359,15 @@ export function AnalyticsView({ niches }: Props) {
           })}
         </div>
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+          mostrando {STATUS_OPTIONS.find((o) => o.value === statusFilter)?.label.toLowerCase()}
+          {" · "}
           {signalFilter === "all"
             ? "ordenado do melhor para o pior"
             : `apenas ${SIGNAL_OPTIONS.find((o) => o.value === signalFilter)?.label.toLowerCase()}`}
         </span>
       </section>
 
-      {/* Barra de ordenacao — por sinal (default) ou por score de oportunidade */}
+      {/* Filtros — linha 2: ordenacao + periodo dos graficos + corte de picos */}
       <section
         className="card"
         style={{
@@ -394,24 +402,7 @@ export function AnalyticsView({ niches }: Props) {
             );
           })}
         </div>
-        <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
-          {sortBy === "score"
-            ? "maior score de oportunidade primeiro"
-            : "melhor sinal primeiro"}
-        </span>
-      </section>
-
-      {/* Barra de período dos gráficos */}
-      <section
-        className="card"
-        style={{
-          marginBottom: 16,
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          flexWrap: "wrap",
-        }}
-      >
+        <div style={{ width: 1, alignSelf: "stretch", background: "#1f2a4a" }} />
         <div style={{ fontSize: 13, fontWeight: 500 }}>Período</div>
         <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           {PERIOD_OPTIONS.map((opt) => {
@@ -433,10 +424,47 @@ export function AnalyticsView({ niches }: Props) {
             );
           })}
         </div>
+        <div
+          style={{ width: 1, alignSelf: "stretch", background: "#1f2a4a" }}
+        />
+        <div
+          style={{ fontSize: 13, fontWeight: 500 }}
+          title="Ligado: picos absurdos (ex.: snapshot defeituoso da coleta) são cortados na borda do gráfico em vez de achatar a escala. O tooltip continua mostrando o valor real."
+        >
+          Corte de picos
+        </div>
+        <div role="tablist" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {[
+            { value: true, label: "Ligado" },
+            { value: false, label: "Desligado" },
+          ].map((opt) => {
+            const active = opt.value === clampOutliers;
+            return (
+              <button
+                key={opt.label}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => {
+                  if (opt.value !== clampOutliers) changeClampOutliers(opt.value);
+                }}
+                className={active ? "btn-primary" : "btn-ghost"}
+                style={{ fontSize: 12, padding: "6px 12px" }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
         <span className="muted" style={{ fontSize: 11, marginLeft: "auto" }}>
+          {sortBy === "score"
+            ? "maior score de oportunidade primeiro"
+            : "melhor sinal primeiro"}
+          {" · "}
           {chartPeriod === "all"
             ? "todo o histórico"
-            : `últimos ${chartPeriod === "7d" ? 7 : 30} dias`}
+            : `últimos ${chartPeriod === "7d" ? 7 : chartPeriod === "30d" ? 30 : 90} dias`}
+          {clampOutliers ? " · outliers cortados" : ""}
         </span>
       </section>
 
@@ -659,12 +687,14 @@ export function AnalyticsView({ niches }: Props) {
                     color="#2dd4bf"
                     period={chartPeriod}
                     aggregation="last"
+                    clampOutliers={clampOutliers}
                   />
                   <ChannelChart
                     title="Views totais"
                     data={views_series}
                     period={chartPeriod}
                     aggregation="last"
+                    clampOutliers={clampOutliers}
                   />
                   <ChannelChart
                     title="Uploads/semana"
@@ -674,6 +704,7 @@ export function AnalyticsView({ niches }: Props) {
                     formatValue={(v) => v.toFixed(1)}
                     period={chartPeriod}
                     aggregation="avg"
+                    clampOutliers={clampOutliers}
                   />
                   <ChannelChart
                     title="VPD do canal"
@@ -681,7 +712,7 @@ export function AnalyticsView({ niches }: Props) {
                     color="#fb7185"
                     period={chartPeriod}
                     aggregation="avg"
-                    clampOutliers
+                    clampOutliers={clampOutliers}
                   />
                   <ChannelChart
                     title="VPD dos últimos 10 uploads"
@@ -689,6 +720,7 @@ export function AnalyticsView({ niches }: Props) {
                     color="#f59e0b"
                     period={chartPeriod}
                     aggregation="avg"
+                    clampOutliers={clampOutliers}
                   />
                 </div>
               </section>

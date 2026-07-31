@@ -216,6 +216,47 @@ a {
   gap: 12px;
 }
 
+/* Cards-aba do Dashboard (Aquecendo/Promissores/...): o card inteiro é um
+   botão que abre a lista compacta logo abaixo. Borda esquerda colorida pelo
+   sinal reusa a mesma paleta dos cards do Analytics. */
+.dash-highlight-card {
+  text-align: left;
+  font-family: inherit;
+  color: var(--text);
+  cursor: pointer;
+  border-left-width: 3px;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.dash-highlight-card:hover {
+  border-color: var(--accent-dim);
+}
+
+.dash-highlight-card.is-open {
+  border-color: var(--accent);
+  background: rgba(79, 140, 255, 0.06);
+}
+
+.dash-highlight-card.signal-heating {
+  border-left-color: #ef4444;
+}
+.dash-highlight-card.signal-promising {
+  border-left-color: #4f8cff;
+}
+.dash-highlight-card.signal-saturated {
+  border-left-color: #8b93ad;
+}
+.dash-highlight-card.signal-stable {
+  border-left-color: var(--success);
+}
+
+.dash-highlight-cta {
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
 .muted {
   color: var(--text-dim);
 }

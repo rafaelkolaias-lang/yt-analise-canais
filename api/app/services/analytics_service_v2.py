@@ -123,14 +123,23 @@ def _latest_snapshots(db: Session, channel_ids: Optional[set[int]] = None) -> li
     return query.all()
 
 
-def _count_videos_accelerating(db: Session, channel_ids: Optional[set[int]] = None) -> int:
+def _videos_accelerating_rows(
+    db: Session, channel_ids: Optional[set[int]] = None
+) -> list[dict]:
+    """
+    Videos ativos cujo VPD subiu do penultimo pro ultimo snapshot.
+
+    Devolve linhas cruas `{tracked_video_id, vpd_now, vpd_prev}` — o contador
+    do /overview e a listagem do /highlights compartilham esta funcao pra a
+    regra de "acelerando" ser literalmente a mesma nos dois lugares.
+    """
     query = db.query(TrackedVideo.id).filter(TrackedVideo.status == "active")
     if channel_ids is not None:
         if not channel_ids:
-            return 0
+            return []
         query = query.filter(TrackedVideo.channel_id.in_(channel_ids))
 
-    count = 0
+    rows: list[dict] = []
     for (tracked_video_id,) in query.all():
         last_two = (
             db.query(VideoSnapshot)
@@ -144,8 +153,18 @@ def _count_videos_accelerating(db: Session, channel_ids: Optional[set[int]] = No
         if last_two[0].vpd is None or last_two[1].vpd is None:
             continue
         if last_two[0].vpd > last_two[1].vpd:
-            count += 1
-    return count
+            rows.append(
+                {
+                    "tracked_video_id": tracked_video_id,
+                    "vpd_now": last_two[0].vpd,
+                    "vpd_prev": last_two[1].vpd,
+                }
+            )
+    return rows
+
+
+def _count_videos_accelerating(db: Session, channel_ids: Optional[set[int]] = None) -> int:
+    return len(_videos_accelerating_rows(db, channel_ids=channel_ids))
 
 
 def overview(db: Session, status: Optional[str] = None) -> dict:
@@ -181,6 +200,162 @@ def overview(db: Session, status: Optional[str] = None) -> dict:
         "channels_stable": counts["stable"],
         "channels_unknown": counts["unknown"],
         "videos_accelerating": videos_accelerating,
+    }
+
+
+# =============================================================================
+# Highlights — listas por tras dos contadores do Dashboard
+# =============================================================================
+# Cada "kind" corresponde a um card do Dashboard. Os tres primeiros olham o
+# sinal do ultimo snapshot do canal; o ultimo olha os videos rastreados.
+HIGHLIGHT_KINDS = ("heating", "promising", "saturated", "videos_accelerating")
+
+# Teto de linhas devolvidas por aba. Alto o bastante pra caber a base atual
+# (dezenas/centenas de canais) e baixo o bastante pra o JSON nao explodir.
+HIGHLIGHT_MAX_LIMIT = 200
+
+
+def highlights(
+    db: Session,
+    kind: str,
+    status: Optional[str] = "active",
+    limit: int = 50,
+) -> dict:
+    """
+    Lista COMPACTA por tras de cada contador do /overview.
+
+    Diferente de `channels_paginated`, aqui nao ha series temporais nem
+    `channel_summary` por canal — so o que cabe numa linha de tabela. Assim o
+    Dashboard abre a aba sem pagar o custo da tela de Analytics.
+
+    IMPORTANTE: usa exatamente os mesmos filtros do `overview` (mesmo `status`,
+    mesmo sinal do ultimo snapshot, mesma regra de video acelerando), pra o
+    numero do card sempre bater com a quantidade de linhas da aba.
+    """
+    if kind not in HIGHLIGHT_KINDS:
+        raise ValueError(f"kind invalido: {kind}")
+    if limit < 1:
+        limit = 1
+    if limit > HIGHLIGHT_MAX_LIMIT:
+        limit = HIGHLIGHT_MAX_LIMIT
+
+    if kind == "videos_accelerating":
+        return _highlights_videos(db, status=status, limit=limit)
+    return _highlights_channels(db, signal=kind, status=status, limit=limit)
+
+
+def _highlights_channels(
+    db: Session, signal: str, status: Optional[str], limit: int
+) -> dict:
+    query = _channel_query(db, status)
+    if query is None:
+        return {"kind": signal, "total": 0, "channels": [], "videos": []}
+
+    channels = query.all()
+    latest_by_channel = {
+        snap.channel_id: snap for snap in _latest_snapshots(db, {c.id for c in channels})
+    }
+
+    matched = [
+        c
+        for c in channels
+        if (latest_by_channel.get(c.id).signal if latest_by_channel.get(c.id) else None)
+        == signal
+    ]
+
+    # Melhor oportunidade primeiro; VPD e created_at como desempate (mesma
+    # logica do sort "score" da tela de Analytics).
+    def _sort_key(ch: Channel) -> tuple:
+        snap = latest_by_channel.get(ch.id)
+        score = opportunity_score(snap)
+        vpd = snap.avg_vpd_recent if snap and snap.avg_vpd_recent is not None else -1.0
+        created = ch.created_at.timestamp() if ch.created_at else 0.0
+        return (-score, -float(vpd), -created)
+
+    matched.sort(key=_sort_key)
+
+    rows = []
+    for ch in matched[:limit]:
+        snap = latest_by_channel.get(ch.id)
+        rows.append(
+            {
+                "id": ch.id,
+                "youtube_channel_id": ch.youtube_channel_id,
+                "title": ch.title,
+                "url": ch.url,
+                "thumbnail_url": ch.thumbnail_url,
+                "status": ch.status,
+                "is_favorite": ch.is_favorite,
+                "signal": snap.signal if snap else None,
+                "signal_reason": snap.signal_reason if snap else None,
+                "opportunity_score": opportunity_score(snap),
+                "subscribers": snap.subscribers if snap else None,
+                "avg_vpd_recent": snap.avg_vpd_recent if snap else None,
+                "delta_avg_vpd": snap.delta_avg_vpd if snap else None,
+                "uploads_per_week": snap.uploads_per_week if snap else None,
+                "captured_at": (
+                    snap.captured_at.isoformat() if snap and snap.captured_at else None
+                ),
+            }
+        )
+
+    return {"kind": signal, "total": len(matched), "channels": rows, "videos": []}
+
+
+def _highlights_videos(db: Session, status: Optional[str], limit: int) -> dict:
+    channel_ids = _filter_channel_ids_by_status(db, status)
+    accelerating = _videos_accelerating_rows(db, channel_ids=channel_ids)
+    if not accelerating:
+        return {"kind": "videos_accelerating", "total": 0, "channels": [], "videos": []}
+
+    # Maior salto de VPD primeiro — o que mais acelerou aparece no topo.
+    accelerating.sort(key=lambda r: (r["vpd_now"] - r["vpd_prev"]), reverse=True)
+    page = accelerating[:limit]
+
+    # Hidrata titulo/thumb/canal das linhas da pagina numa unica query.
+    videos_by_id = {
+        v.id: v
+        for v in db.query(TrackedVideo)
+        .filter(TrackedVideo.id.in_([r["tracked_video_id"] for r in page]))
+        .all()
+    }
+    channels_by_id = {
+        c.id: c
+        for c in db.query(Channel)
+        .filter(Channel.id.in_({v.channel_id for v in videos_by_id.values()}))
+        .all()
+    }
+
+    rows = []
+    for r in page:
+        video = videos_by_id.get(r["tracked_video_id"])
+        if video is None:
+            continue
+        channel = channels_by_id.get(video.channel_id)
+        rows.append(
+            {
+                "id": video.id,
+                "youtube_video_id": video.youtube_video_id,
+                "title": video.title,
+                "url": video.url,
+                "thumbnail_url": video.thumbnail_url,
+                "channel_id": video.channel_id,
+                "channel_title": channel.title if channel else "—",
+                "vpd_now": r["vpd_now"],
+                "vpd_prev": r["vpd_prev"],
+                "vpd_delta": round(r["vpd_now"] - r["vpd_prev"], 2),
+                "last_seen_views": video.last_seen_views,
+                "last_seen_at": (
+                    video.last_seen_at.isoformat() if video.last_seen_at else None
+                ),
+            }
+        )
+
+    return {
+        "kind": "videos_accelerating",
+        "total": len(accelerating),
+        "channels": [],
+        "videos": rows,
     }
 
 

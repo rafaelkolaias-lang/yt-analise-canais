@@ -20,7 +20,13 @@ type Kind = "line" | "bar";
 // últimos N dias (contados a partir do ponto mais recente da série — assim o
 // gráfico não fica vazio se o sync estiver atrasado). Não agrega nada: os
 // pontos continuam sendo os snapshots crus, com o teto de MAX_POINTS valendo.
-export type ChartPeriod = "all" | "7d" | "30d";
+export type ChartPeriod = "all" | "7d" | "30d" | "90d";
+
+const PERIOD_DAYS: Record<Exclude<ChartPeriod, "all">, number> = {
+  "7d": 7,
+  "30d": 30,
+  "90d": 90,
+};
 
 // Critério do downsample (teto de pontos): para métricas cumulativas (views,
 // inscritos) usamos o último valor do grupo; para derivadas (VPD, uploads/sem)
@@ -147,7 +153,7 @@ export function ChannelChart({
     .map((p) => ({ captured_at: p.captured_at!, value: p.value as number }));
 
   const inPeriod =
-    period === "all" ? cleanRaw : filterPeriod(cleanRaw, period === "7d" ? 7 : 30);
+    period === "all" ? cleanRaw : filterPeriod(cleanRaw, PERIOD_DAYS[period]);
 
   // Teto de pontos: histórico longo no modo "Todos" nunca renderiza mais que
   // MAX_POINTS (reamostra preservando o formato da curva e o último ponto).

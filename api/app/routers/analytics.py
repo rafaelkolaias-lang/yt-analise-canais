@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.schemas.analytics import (
+    AnalyticsHighlights,
     AnalyticsOverview,
     ChannelAnalyticsSummary,
     NicheRow,
@@ -23,6 +24,7 @@ router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 _STATUS_PATTERN = "^(all|active|paused|removed)$"
 _SIGNAL_PATTERN = "^(all|heating|promising|stable|saturated|unknown)$"
 _SORT_PATTERN = "^(signal|score)$"
+_HIGHLIGHT_KIND_PATTERN = "^(heating|promising|saturated|videos_accelerating)$"
 
 
 @router.get("/overview", response_model=AnalyticsOverview)
@@ -32,6 +34,24 @@ def get_overview(
 ) -> AnalyticsOverview:
     data = analytics_service.overview(db, status=status)
     return AnalyticsOverview(**data)
+
+
+@router.get("/highlights", response_model=AnalyticsHighlights)
+def get_highlights(
+    kind: str = Query(..., pattern=_HIGHLIGHT_KIND_PATTERN),
+    status: str = Query("active", pattern=_STATUS_PATTERN),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+) -> AnalyticsHighlights:
+    """
+    Lista compacta por trás de cada contador do /overview — alimenta as abas
+    do Dashboard. Mesmos filtros do /overview, então total bate com o card.
+    """
+    try:
+        data = analytics_service.highlights(db, kind, status=status, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return AnalyticsHighlights(**data)
 
 
 @router.get("/channels", response_model=PaginatedChannelAnalytics)

@@ -7,6 +7,7 @@ import {
 } from "@/lib/api";
 import { serverApiGetOrNull as fetchJSON } from "@/lib/serverApi";
 
+import { DashboardHighlights } from "./DashboardHighlights";
 import { DashboardSyncPanel } from "./DashboardSyncPanel";
 
 export const dynamic = "force-dynamic";
@@ -96,42 +97,8 @@ export default async function DashboardPage() {
         </div>
       </section>
 
-      <section className="card-grid" style={{ marginTop: 16 }}>
-        <div className="card">
-          <div className="muted">Aquecendo</div>
-          <div style={{ fontSize: 22, marginTop: 4 }}>
-            {overview?.channels_accelerating ?? "—"}
-          </div>
-          <div className="muted" style={{ fontSize: 11 }}>
-            <a href="/analytics">ver analytics</a>
-          </div>
-        </div>
-        <div className="card">
-          <div className="muted">Promissores</div>
-          <div style={{ fontSize: 22, marginTop: 4 }}>
-            {overview?.channels_promising ?? "—"}
-          </div>
-          <div className="muted" style={{ fontSize: 11 }}>
-            pequenos com VPD alto
-          </div>
-        </div>
-        <div className="card">
-          <div className="muted">Saturados</div>
-          <div style={{ fontSize: 22, marginTop: 4 }}>
-            {overview?.channels_saturated ?? "—"}
-          </div>
-          <div className="muted" style={{ fontSize: 11 }}>acima do limite</div>
-        </div>
-        <div className="card">
-          <div className="muted">Vídeos acelerando</div>
-          <div style={{ fontSize: 22, marginTop: 4 }}>
-            {overview?.videos_accelerating ?? "—"}
-          </div>
-          <div className="muted" style={{ fontSize: 11 }}>
-            VPD crescendo no último snapshot
-          </div>
-        </div>
-      </section>
+      {/* Cada card abre, logo abaixo, a lista compacta do que ele conta. */}
+      <DashboardHighlights overview={overview} />
     </>
   );
 }
